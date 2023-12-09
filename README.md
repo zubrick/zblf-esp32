@@ -1,13 +1,13 @@
 # zblf-esp32
 
-This project uses the esp-idf framework from Espressif [https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/]
+This project uses the esp-idf framework from Espressif https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/
 
-It is based on the hfp_hf_demo example of BTstack from BlueKitchen [https://github.com/bluekitchen/btstack]
+It is based on the hfp_hf_demo example of BTstack from BlueKitchen https://github.com/bluekitchen/btstack
 Everything is built around it to add leds, wifi and mqtt.
 
-You will also need the sip2mqtt [https://github.com/zubrick/sip2mqtt] app and a mqtt broker for it to work with VoIP status
+You will also need the sip2mqtt https://github.com/zubrick/sip2mqtt app and a mqtt broker for it to work with VoIP status
 
-## TODO
+## TODO
 
 - [ ] Some Cleanup of parts of the example that are not needed
 - [x] Add mqtts support
