@@ -1,0 +1,121 @@
+.config
+*.o
+*.pyc
+
+# gtags
+GTAGS
+GRTAGS
+GPATH
+
+# emacs
+.dir-locals.el
+
+# emacs temp file suffixes
+*~
+.#*
+\#*#
+
+# eclipse setting
+.settings
+
+# MacOS directory files
+.DS_Store
+
+# cache dir
+.cache/
+
+# VS Code Settings
+.vscode/
+
+# VIM files
+*.swp
+*.swo
+
+# Sublime Text files
+*.sublime-project
+*.sublime-workspace
+
+# Clion IDE CMake build & config
+.idea/
+cmake-build-*/
+
+# Results for the checking of the Python coding style and static analysis
+.mypy_cache
+flake8_output.txt
+
+# ESP-IDF default build directory name
+build
+
+# lock files for examples and components
+dependencies.lock
+
+# managed_components for examples
+managed_components
+
+# pytest log
+pytest_embedded_log/
+list_job_*.txt
+size_info.txt
+
+# clang config (for LSP)
+.clangd
+
+# Vale
+.vale/styles/*
+
+#buidfiles
+build/
+sdkconfig
+sdkconfig.old
+bootloader/
+bootloader-prefix/
+config/
+esp-idf/
+
+#cmake
+CMakeLists.txt.user
+CMakeCache.txt
+CMakeFiles
+CMakeScripts
+Testing
+Makefile
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+_deps
+
+#idf
+app-flash_args
+project_description.json
+partition-table-flash_args
+ldgen_libraries*
+flash_*
+kconfigs.in
+kconfigs_projbuild.in
+compile_commands.json
+bootloader-flash_args
+config.env
+flasher_args.json
+
+*~
+*.o
+*.d
+*.dSYM
+*.aux
+*.toc
+*.out
+*.pklg
+*.fdb_latexmk
+*.hex
+*.a
+*.dylib
+*.bts
+*.elf
+*.map
+.theos
+.stamp
+.bts
+
+#project specific
+main/config.h

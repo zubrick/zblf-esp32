@@ -1,0 +1,7 @@
+#define BROKER_URL "mqtt://hostname.domain.com"
+#define MQTT_TOPIC "sipstatus/123"
+#define MQTT_USER  "your mqtt user"
+#define MQTT_PASS  "your mqtt pass"
+
+#define WIFI_SSID  "your wifi"
+#define WIFI_PASS  "your wifi password"
