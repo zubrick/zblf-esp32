@@ -59,7 +59,7 @@
 #include "mqtt_client.h" //provides important functions to connect with MQTT
 #include "freertos/FreeRTOS.h" //it is important too if you want to run mqtt task independently and provides threads funtionality
 #include "freertos/task.h" //MQTT communication often involves asynchronous operations, and FreeRTOS helps handle those tasks effectively
-
+#include "esp_tls.h"
 
 const char *ssid = WIFI_SSID;
 const char *pass = WIFI_PASS;
@@ -154,12 +154,25 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         }
     } else if(event_id == MQTT_EVENT_ERROR) {
         ESP_LOGI(TAG3, "MQTT_EVENT_ERROR");
+        if (event->error_handle->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT) {
+            ESP_LOGI(TAG, "Last error code reported from esp-tls: 0x%x", event->error_handle->esp_tls_last_esp_err);
+            ESP_LOGI(TAG, "Last tls stack error number: 0x%x", event->error_handle->esp_tls_stack_err);
+            ESP_LOGI(TAG, "Last captured errno : %d (%s)",  event->error_handle->esp_transport_sock_errno,
+                     strerror(event->error_handle->esp_transport_sock_errno));
+        } else if (event->error_handle->error_type == MQTT_ERROR_TYPE_CONNECTION_REFUSED) {
+            ESP_LOGI(TAG, "Connection refused error: 0x%x", event->error_handle->connect_return_code);
+        } else {
+            ESP_LOGW(TAG, "Unknown error type: 0x%x", event->error_handle->error_type);
+        }
     }
 }
 
 static void mqtt_initialize(void) {/*Depending on your website or cloud there could be more parameters in mqtt_cfg.*/
     const esp_mqtt_client_config_t mqtt_cfg={
-        .broker.address.uri = BROKER_URL, //Uniform Resource Identifier includes path,protocol
+        .broker = {
+            .address.uri = BROKER_URL, //Uniform Resource Identifier includes path,protocol
+            .verification.certificate = cacert
+        },
         .credentials = {
             .username=MQTT_USER, //your username
             .authentication.password=MQTT_PASS, //your adafruit io password

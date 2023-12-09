@@ -10,7 +10,7 @@ You will also need the sip2mqtt [https://github.com/zubrick/sip2mqtt] app and a 
 ## TODO
 
 - [ ] Some Cleanup of parts of the example that are not needed
-- [ ] Add mqtts support
+- [x] Add mqtts support
 - [ ] Make the phone understand there is no sound (for now it auto disconnect the audio on audio connection)
 - [ ] Auto reconnect to phone
 - [ ] Configurable settings for led, wifi and mqtt
