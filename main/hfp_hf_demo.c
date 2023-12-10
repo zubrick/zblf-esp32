@@ -38,13 +38,14 @@
 
 #define BTSTACK_FILE__ "hfp_hf_demo.c"
 
+#include "config.h"
 
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/rmt_tx.h"
 #include "led_strip_encoder.h"
-
+#include "driver/gpio.h"
 
 /*
  * hfp_hs_demo.c
@@ -67,13 +68,9 @@
 #include <stdlib.h>
 #include "btstack.h"
 
-#include "sco_demo_util.h"
-
 
 #define RMT_LED_STRIP_RESOLUTION_HZ 10000000 // 10MHz resolution, 1 tick = 0.1us (led strip needs a high resolution)
 #define RMT_LED_STRIP_GPIO_NUM      2
-
-#define LED_NUMBERS 41
 
 uint8_t hfp_service_buffer[150];
 const uint8_t   rfcomm_channel_nr = 1;
@@ -95,18 +92,11 @@ static void show_usage(void);
 static hci_con_handle_t acl_handle = HCI_CON_HANDLE_INVALID;
 static hci_con_handle_t sco_handle = HCI_CON_HANDLE_INVALID;
 
-static uint8_t codecs[] = {
-        HFP_CODEC_CVSD,
-#ifdef ENABLE_HFP_WIDE_BAND_SPEECH
-        HFP_CODEC_MSBC,
-#endif
-#ifdef ENABLE_HFP_SUPER_WIDE_BAND_SPEECH
-        HFP_CODEC_LC3_SWB,
-#endif
-};
+static int connectionStatus = 0;
+
+static uint8_t codecs[] = {};
 
 static uint16_t indicators[1] = {0x01};
-static uint8_t  negotiated_codec = HFP_CODEC_CVSD;
 static btstack_packet_callback_registration_t hci_event_callback_registration;
 static char cmd;
 
@@ -163,18 +153,21 @@ static void setLedsColor(uint32_t red, uint32_t green, uint32_t blue ) {
 int BTCallState = 0;
 int SIPCallState = 0;
 static void setStateColor() {
-    if (BTCallState == 0 && SIPCallState == 0) {
+    if (BTCallState > 2 || SIPCallState > 2) {
+        printf("Leds PURPLE\r\n");
+        setLedsColor(LED_BRIGHTNESS/2, 0 , LED_BRIGHTNESS/2);
+    } else if (BTCallState == 0 && SIPCallState == 0) {
         printf("Leds OFF\r\n");
         setLedsColor(0, 0 ,0);
     } else if (BTCallState == 1 || SIPCallState == 1) {
         printf("Leds YELLOW\r\n");
-        setLedsColor(100, 50 ,0);
+        setLedsColor(LED_BRIGHTNESS, LED_BRIGHTNESS/2 ,0);
     } else if (BTCallState == 2 || SIPCallState == 2) {
         printf("Leds RED\r\n");
-        setLedsColor(100, 0 ,0);
+        setLedsColor(LED_BRIGHTNESS, 0 ,0);
     } else {
         printf("Leds BLUE\r\n");
-        setLedsColor(0, 0 ,100);
+        setLedsColor(0, 0 ,LED_BRIGHTNESS);
     }
 }
 
@@ -530,7 +523,6 @@ static void hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t * 
         case HCI_SCO_DATA_PACKET:
             // forward received SCO / audio packets to SCO component
             if (READ_SCO_CONNECTION_HANDLE(event) != sco_handle) break;
-            sco_demo_receive(event, event_size);
             break;
 
         case HCI_EVENT_PACKET:
@@ -549,7 +541,6 @@ static void hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t * 
                     break;
 
                 case HCI_EVENT_SCO_CAN_SEND_NOW:
-                    sco_demo_send(sco_handle);
                     break;
 
                 default:
@@ -572,7 +563,6 @@ static void hfp_hf_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
 
         case HCI_SCO_DATA_PACKET:
             if (READ_SCO_CONNECTION_HANDLE(event) != sco_handle) break;
-            sco_demo_receive(event, event_size);
             break;
 
         case HCI_EVENT_PACKET:
@@ -590,7 +580,6 @@ static void hfp_hf_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
                     break;
 
                 case HCI_EVENT_SCO_CAN_SEND_NOW:
-                    sco_demo_send(sco_handle);
                     break;
                     
                 case HCI_EVENT_HFP_META:
@@ -601,13 +590,17 @@ static void hfp_hf_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
                                 printf("Connection failed, status 0x%02x\n", status);
                                 break;
                             }
+                            connectionStatus = 1;
+                            gpio_set_level(BTNLED_GPIO, 0);
                             acl_handle = hfp_subevent_service_level_connection_established_get_acl_handle(event);
                             hfp_subevent_service_level_connection_established_get_bd_addr(event, device_addr);
                             printf("Service level connection established %s.\n\n", bd_addr_to_str(device_addr));
                             break;
                         case HFP_SUBEVENT_SERVICE_LEVEL_CONNECTION_RELEASED:
+                            connectionStatus = 0;
                             acl_handle = HCI_CON_HANDLE_INVALID;
                             setBTCallStatus(0);
+                            gpio_set_level(BTNLED_GPIO, 1);
                             printf("Service level connection released.\n\n");
                             break;
                         case HFP_SUBEVENT_AUDIO_CONNECTION_ESTABLISHED:
@@ -617,25 +610,6 @@ static void hfp_hf_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
                                 printf("Audio connection establishment failed with status 0x%02x\n", status);
                                 break;
                             } 
-                            sco_handle = hfp_subevent_audio_connection_established_get_sco_handle(event);
-                            printf("Audio connection established with SCO handle 0x%04x.\n", sco_handle);
-                            negotiated_codec = hfp_subevent_audio_connection_established_get_negotiated_codec(event);
-                            switch (negotiated_codec){
-                                case HFP_CODEC_CVSD:
-                                    printf("Using CVSD codec.\n");
-                                    break;
-                                case HFP_CODEC_MSBC:
-                                    printf("Using mSBC codec.\n");
-                                    break;
-                                case HFP_CODEC_LC3_SWB:
-                                    printf("Using LC3-SWB codec.\n");
-                                    break;
-                                default:
-                                    printf("Using unknown codec 0x%02x.\n", negotiated_codec);
-                                    break;
-                            }
-                            sco_demo_set_codec(negotiated_codec);
-                            hci_request_sco_can_send_now_event();
                             status =  hfp_hf_release_audio_connection(acl_handle);
                             if (BTCallState != 1) {
                                 setBTCallStatus(2);
@@ -657,8 +631,6 @@ static void hfp_hf_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
                         case HFP_SUBEVENT_AUDIO_CONNECTION_RELEASED:
                             sco_handle = HCI_CON_HANDLE_INVALID;
                             printf("Audio connection released\n");
-                            sco_demo_close();
-                            
                             break;
                         case  HFP_SUBEVENT_COMPLETE:
                             status = hfp_subevent_complete_get_status(event);
@@ -832,17 +804,21 @@ int btstack_main(int argc, const char * argv[]){
 #endif
 
     // Init profiles
-    uint16_t hf_supported_features          =
+    /*uint16_t hf_supported_features          =
         (1<<HFP_HFSF_ESCO_S4)               |
         (1<<HFP_HFSF_CLI_PRESENTATION_CAPABILITY) |
         (1<<HFP_HFSF_HF_INDICATORS)         |
-        (1<<HFP_HFSF_CODEC_NEGOTIATION)     |
         (1<<HFP_HFSF_ENHANCED_CALL_STATUS)  |
         (1<<HFP_HFSF_VOICE_RECOGNITION_FUNCTION)  |
         (1<<HFP_HFSF_ENHANCED_VOICE_RECOGNITION_STATUS) |
         (1<<HFP_HFSF_VOICE_RECOGNITION_TEXT) |
         (1<<HFP_HFSF_EC_NR_FUNCTION) |
-        (1<<HFP_HFSF_REMOTE_VOLUME_CONTROL);
+        (1<<HFP_HFSF_REMOTE_VOLUME_CONTROL);*/
+    uint16_t hf_supported_features          =
+        (1<<HFP_HFSF_CLI_PRESENTATION_CAPABILITY) |
+        (1<<HFP_HFSF_HF_INDICATORS)         |
+        (1<<HFP_HFSF_ENHANCED_CALL_STATUS) |
+        (1<<HFP_HFSF_EC_NR_FUNCTION);
 
     hfp_hf_init(rfcomm_channel_nr);
     hfp_hf_init_supported_features(hf_supported_features);
@@ -871,7 +847,8 @@ int btstack_main(int argc, const char * argv[]){
     gap_discoverable_control(1);
 
     // - Set Class of Device - Service Class: Audio, Major Device Class: Audio, Minor: Hands-Free device
-    gap_set_class_of_device(0x200408);
+    //gap_set_class_of_device(0x200408);
+    gap_set_class_of_device(0x40050c);
 
     // - Allow for role switch in general and sniff mode
     gap_set_default_link_policy_settings( LM_LINK_POLICY_ENABLE_ROLE_SWITCH | LM_LINK_POLICY_ENABLE_SNIFF_MODE );
@@ -882,11 +859,8 @@ int btstack_main(int argc, const char * argv[]){
     // Register for HCI events and SCO packets
     hci_event_callback_registration.callback = &hci_packet_handler;
     hci_add_event_handler(&hci_event_callback_registration);
-    hci_register_sco_packet_handler(&hci_packet_handler);
+    //hci_register_sco_packet_handler(&hci_packet_handler);
 
-
-    // Init SCO / HFP audio processing
-    sco_demo_init();
 
 #ifdef HAVE_BTSTACK_STDIN
     // parse human readable Bluetooth address

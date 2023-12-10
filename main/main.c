@@ -60,9 +60,12 @@
 #include "freertos/FreeRTOS.h" //it is important too if you want to run mqtt task independently and provides threads funtionality
 #include "freertos/task.h" //MQTT communication often involves asynchronous operations, and FreeRTOS helps handle those tasks effectively
 #include "esp_tls.h"
+#include "driver/gpio.h"
 
-const char *ssid = WIFI_SSID;
-const char *pass = WIFI_PASS;
+const char * ssid = WIFI_SSID;
+const char * pass = WIFI_PASS;
+
+const char * cacert = CACERT;
 
 #include <stddef.h>
 
@@ -186,11 +189,15 @@ static void mqtt_initialize(void) {/*Depending on your website or cloud there co
 extern int btstack_main(int argc, const char * argv[]);
 
 int app_main(void){
+    setSIPCallStatus(3); 
     nvs_flash_init(); // this is important in wifi case to store configurations , code will not work if this is not added
     wifi_connection();  
     vTaskDelay(10000 /portTICK_PERIOD_MS); //delay is important cause we need to let it connect to wifi 
     mqtt_initialize(); // MQTT start app as shown above most important code for MQTT   
 
+    gpio_set_direction(BTNLED_GPIO, GPIO_MODE_OUTPUT);
+    gpio_set_level(BTNLED_GPIO, 1);
+    
     // optional: enable packet logger
     // hci_dump_init(hci_dump_embedded_stdout_get_instance());
 
