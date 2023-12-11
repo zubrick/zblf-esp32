@@ -1,7 +1,17 @@
+#ifndef ZBLFCONFIG
+#define ZBLFCONFIG 1
+
+#define STATUSLED_GPIO 2
+#define BTNLED_GPIO 4
+#define LED_NUMBERS 4
+#define LED_BRIGHTNESS 160
+
 #define BROKER_URL "mqtts://hostname.domain.com"
 #define MQTT_TOPIC "sipstatus/123"
 #define MQTT_USER  "your mqtt user"
 #define MQTT_PASS  "your mqtt pass"
+
+#define BT_DEVICE "00:11:22:33:44:55"
 
 #define WIFI_SSID  "your wifi"
 #define WIFI_PASS  "your wifi password"

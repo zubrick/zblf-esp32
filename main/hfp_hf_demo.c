@@ -76,10 +76,11 @@ uint8_t hfp_service_buffer[150];
 const uint8_t   rfcomm_channel_nr = 1;
 const char hfp_hf_service_name[] = "zBLF";
 
+#define ZBLF_PERIOD_MS 1000
+static btstack_timer_source_t zblf_timer;
 
 #ifdef HAVE_BTSTACK_STDIN
-// static const char * device_addr_string = "6C:72:E7:10:22:EE";
-static const char * device_addr_string = "A0:FB:C5:16:B8:90";
+static const char * device_addr_string = BT_DEVICE;
 #endif
 
 static bd_addr_t device_addr;
@@ -775,6 +776,26 @@ static void hfp_hf_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
 
 }
 
+int waitConnection = 0;
+static void zblf_timer_handler(btstack_timer_source_t * ts){
+    //printf("\nTimer\n"); 
+    
+    if (connectionStatus == 0) {
+        connectionStatus = 2;
+        waitConnection = 35;
+        printf("Trying reconnect\n"); 
+        hfp_hf_establish_service_level_connection(device_addr);
+    } else if (connectionStatus == 2) {
+        waitConnection--;
+        //printf("\nWait %d\n", waitConnection); 
+        if (waitConnection <= 0) {
+            connectionStatus = 0;
+        }
+    }
+    btstack_run_loop_set_timer(&zblf_timer, ZBLF_PERIOD_MS);
+    btstack_run_loop_add_timer(&zblf_timer);  
+}
+
 /* @section Main Application Setup
  *
  * @text Listing MainConfiguration shows main application code. 
@@ -872,6 +893,13 @@ int btstack_main(int argc, const char * argv[]){
     hci_power_control(HCI_POWER_ON);
 
     hfp_hf_establish_service_level_connection(device_addr);
+
+    printf("btstack_run_loop_set_timer_handler()...\n");
+    btstack_run_loop_set_timer_handler(&zblf_timer, zblf_timer_handler);
+    printf("btstack_run_loop_set_timer()...\n");
+    btstack_run_loop_set_timer(&zblf_timer, ZBLF_PERIOD_MS);
+    printf("btstack_run_loop_add_timer()...\n");
+    btstack_run_loop_add_timer(&zblf_timer);  
 
     return 0;
 }
