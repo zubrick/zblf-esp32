@@ -70,7 +70,6 @@
 
 
 #define RMT_LED_STRIP_RESOLUTION_HZ 10000000 // 10MHz resolution, 1 tick = 0.1us (led strip needs a high resolution)
-#define RMT_LED_STRIP_GPIO_NUM      2
 
 uint8_t hfp_service_buffer[150];
 const uint8_t   rfcomm_channel_nr = 1;
@@ -121,7 +120,7 @@ static uint8_t led_strip_pixels[LED_NUMBERS * 3];
 rmt_channel_handle_t led_chan = NULL;
 rmt_tx_channel_config_t tx_chan_config = {
     .clk_src = RMT_CLK_SRC_DEFAULT, // select source clock
-    .gpio_num = RMT_LED_STRIP_GPIO_NUM,
+    .gpio_num = STATUSLED_GPIO,
     .mem_block_symbols = 64, // increase the block size can make the LED less flickering
     .resolution_hz = RMT_LED_STRIP_RESOLUTION_HZ,
     .trans_queue_depth = 4, // set the number of transactions that can be pending in the background
