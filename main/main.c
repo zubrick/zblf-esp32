@@ -197,6 +197,8 @@ int app_main(void){
 
     gpio_set_direction(BTNLED_GPIO, GPIO_MODE_OUTPUT);
     gpio_set_level(BTNLED_GPIO, 1);
+
+    //gpio_set_direction(BTNBTN_GPIO, GPIO_MODE_INPUT);
     
     // optional: enable packet logger
     // hci_dump_init(hci_dump_embedded_stdout_get_instance());

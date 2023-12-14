@@ -68,6 +68,7 @@
 #include <stdlib.h>
 #include "btstack.h"
 
+#undef HAVE_BTSTACK_STDIN
 
 #define RMT_LED_STRIP_RESOLUTION_HZ 10000000 // 10MHz resolution, 1 tick = 0.1us (led strip needs a high resolution)
 
@@ -78,9 +79,7 @@ const char hfp_hf_service_name[] = "zBLF";
 #define ZBLF_PERIOD_MS 1000
 static btstack_timer_source_t zblf_timer;
 
-#ifdef HAVE_BTSTACK_STDIN
 static const char * device_addr_string = BT_DEVICE;
-#endif
 
 static bd_addr_t device_addr;
 
@@ -152,22 +151,29 @@ static void setLedsColor(uint32_t red, uint32_t green, uint32_t blue ) {
 
 int BTCallState = 0;
 int SIPCallState = 0;
+int LocalState = 0;
 static void setStateColor() {
     if (BTCallState > 2 || SIPCallState > 2) {
-        printf("Leds PURPLE\r\n");
-        setLedsColor(LED_BRIGHTNESS/2, 0 , LED_BRIGHTNESS/2);
-    } else if (BTCallState == 0 && SIPCallState == 0) {
+        printf("Leds GREEN\r\n");
+        setLedsColor(0 , LED_BRIGHTNESS/2, 0);
+    } else if (BTCallState == 0 && SIPCallState == 0 && LocalState == 0) {
         printf("Leds OFF\r\n");
         setLedsColor(0, 0 ,0);
     } else if (BTCallState == 1 || SIPCallState == 1) {
         printf("Leds YELLOW\r\n");
         setLedsColor(LED_BRIGHTNESS, LED_BRIGHTNESS/2 ,0);
-    } else if (BTCallState == 2 || SIPCallState == 2) {
+    } else if (SIPCallState == 2) {
         printf("Leds RED\r\n");
         setLedsColor(LED_BRIGHTNESS, 0 ,0);
-    } else {
+    } else if (BTCallState == 2) {
         printf("Leds BLUE\r\n");
-        setLedsColor(0, 0 ,LED_BRIGHTNESS);
+        setLedsColor(0 ,0, LED_BRIGHTNESS);
+    } else if (LocalState == 2) {
+        printf("Leds PURPLE\r\n");
+        setLedsColor(LED_BRIGHTNESS/2, 0 , LED_BRIGHTNESS/2);
+    } else {
+        printf("Leds TURQUOISE\r\n");
+        setLedsColor(0, LED_BRIGHTNESS ,LED_BRIGHTNESS);
     }
 }
 
@@ -179,6 +185,11 @@ static void setBTCallStatus(int state) {
 void setSIPCallStatus(int state) {
     SIPCallState = state;
     printf("SIPCallState=%d\r\n", SIPCallState);
+    setStateColor();
+}
+void setLocalStatus(int state) {
+    LocalState = state;
+    printf("LocalState=%d\r\n", LocalState);
     setStateColor();
 }
 
@@ -791,6 +802,8 @@ static void zblf_timer_handler(btstack_timer_source_t * ts){
             connectionStatus = 0;
         }
     }
+    //printf("GPIO LEVEL IS %d\n", gpio_get_level(BTNBTN_GPIO));
+
     btstack_run_loop_set_timer(&zblf_timer, ZBLF_PERIOD_MS);
     btstack_run_loop_add_timer(&zblf_timer);  
 }
@@ -882,6 +895,7 @@ int btstack_main(int argc, const char * argv[]){
     //hci_register_sco_packet_handler(&hci_packet_handler);
 
 
+    sscanf_bd_addr(device_addr_string, device_addr);
 #ifdef HAVE_BTSTACK_STDIN
     // parse human readable Bluetooth address
     sscanf_bd_addr(device_addr_string, device_addr);
