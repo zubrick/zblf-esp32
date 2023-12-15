@@ -67,10 +67,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "btstack.h"
+#include "mqtt_client.h"
 
-#undef HAVE_BTSTACK_STDIN
+//#undef HAVE_BTSTACK_STDIN
 
 #define RMT_LED_STRIP_RESOLUTION_HZ 10000000 // 10MHz resolution, 1 tick = 0.1us (led strip needs a high resolution)
+
+esp_mqtt_client_handle_t mqttclient;
 
 uint8_t hfp_service_buffer[150];
 const uint8_t   rfcomm_channel_nr = 1;
@@ -79,7 +82,9 @@ const char hfp_hf_service_name[] = "zBLF";
 #define ZBLF_PERIOD_MS 1000
 static btstack_timer_source_t zblf_timer;
 
-static const char * device_addr_string = BT_DEVICE;
+static char * device_addr_string = NULL;
+static char * bttopic = NULL;
+static char * localtopic = NULL;
 
 static bd_addr_t device_addr;
 
@@ -131,8 +136,16 @@ led_strip_encoder_config_t encoder_config = {
 rmt_transmit_config_t tx_config = {
     .loop_count = 0, // no transfer loop
 };
+
+void setBTConfig(char * _bttopic, char * _localtopic, char * phoneMac, esp_mqtt_client_handle_t client) {
+    device_addr_string = phoneMac;
+    bttopic = _bttopic;
+    localtopic = _localtopic;
+    mqttclient = client;
+    printf("setBTConfig(%s, %s, %s)\n", bttopic, localtopic, device_addr_string);
+}
     
-static void initLeds() {
+void initLeds() {
     rmt_new_tx_channel(&tx_chan_config, &led_chan);
     rmt_new_led_strip_encoder(&encoder_config, &led_encoder);
     rmt_enable(led_chan);
@@ -153,24 +166,27 @@ int BTCallState = 0;
 int SIPCallState = 0;
 int LocalState = 0;
 static void setStateColor() {
-    if (BTCallState > 2 || SIPCallState > 2) {
+    if (SIPCallState == 4) {
+        printf("Leds WHITE\r\n");
+        setLedsColor((int)LED_BRIGHTNESS/4 , (int)LED_BRIGHTNESS/4, (int)LED_BRIGHTNESS/4);
+    } else if (SIPCallState == 3) {
         printf("Leds GREEN\r\n");
-        setLedsColor(0 , LED_BRIGHTNESS/2, 0);
-    } else if (BTCallState == 0 && SIPCallState == 0 && LocalState == 0) {
+        setLedsColor(0 , LED_BRIGHTNESS/4, 0);
+    } else if ((BTCallState == 0 || BTCallState == 3) && SIPCallState == 0 && LocalState == 0) {
         printf("Leds OFF\r\n");
         setLedsColor(0, 0 ,0);
     } else if (BTCallState == 1 || SIPCallState == 1) {
         printf("Leds YELLOW\r\n");
         setLedsColor(LED_BRIGHTNESS, LED_BRIGHTNESS/2 ,0);
     } else if (SIPCallState == 2) {
-        printf("Leds RED\r\n");
-        setLedsColor(LED_BRIGHTNESS, 0 ,0);
+        printf("Leds PURPLE\r\n");
+        setLedsColor(LED_BRIGHTNESS/2, 0 , LED_BRIGHTNESS/2);
     } else if (BTCallState == 2) {
         printf("Leds BLUE\r\n");
         setLedsColor(0 ,0, LED_BRIGHTNESS);
-    } else if (LocalState == 2) {
-        printf("Leds PURPLE\r\n");
-        setLedsColor(LED_BRIGHTNESS/2, 0 , LED_BRIGHTNESS/2);
+    } else if (LocalState == 1) {
+        printf("Leds RED\r\n");
+        setLedsColor(LED_BRIGHTNESS, 0 ,0);
     } else {
         printf("Leds TURQUOISE\r\n");
         setLedsColor(0, LED_BRIGHTNESS ,LED_BRIGHTNESS);
@@ -180,6 +196,15 @@ static void setStateColor() {
 static void setBTCallStatus(int state) {
     BTCallState = state;
     setStateColor();
+    if (state == 1) {
+        esp_mqtt_client_publish(mqttclient, bttopic, "early", 0, 0, 1);
+    } else if (state == 2) {
+        esp_mqtt_client_publish(mqttclient, bttopic, "confirmed", 0, 0, 1);
+    } else if (state == 3) {
+        esp_mqtt_client_publish(mqttclient, bttopic, "unknown", 0, 0, 1);
+    } else {
+        esp_mqtt_client_publish(mqttclient, bttopic, "terminated", 0, 0, 1);
+    }
 }
 
 void setSIPCallStatus(int state) {
@@ -187,9 +212,15 @@ void setSIPCallStatus(int state) {
     printf("SIPCallState=%d\r\n", SIPCallState);
     setStateColor();
 }
-void setLocalStatus(int state) {
-    LocalState = state;
-    printf("LocalState=%d\r\n", LocalState);
+
+void toggleLocalStatus() {
+    if (LocalState == 0) {
+        LocalState = 1;
+        esp_mqtt_client_publish(mqttclient, localtopic, "busy", 0, 0, 1);
+    } else {
+        LocalState = 0;
+        esp_mqtt_client_publish(mqttclient, localtopic, "free", 0, 0, 1);
+    }
     setStateColor();
 }
 
@@ -610,7 +641,7 @@ static void hfp_hf_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
                         case HFP_SUBEVENT_SERVICE_LEVEL_CONNECTION_RELEASED:
                             connectionStatus = 0;
                             acl_handle = HCI_CON_HANDLE_INVALID;
-                            setBTCallStatus(0);
+                            setBTCallStatus(3);
                             gpio_set_level(BTNLED_GPIO, 1);
                             printf("Service level connection released.\n\n");
                             break;
@@ -802,7 +833,12 @@ static void zblf_timer_handler(btstack_timer_source_t * ts){
             connectionStatus = 0;
         }
     }
-    //printf("GPIO LEVEL IS %d\n", gpio_get_level(BTNBTN_GPIO));
+    int btn = gpio_get_level(BTNBTN_GPIO);
+    if (btn == 0) {
+        printf("GPIO LEVEL IS %d\n", btn);
+        toggleLocalStatus();
+    }
+
 
     btstack_run_loop_set_timer(&zblf_timer, ZBLF_PERIOD_MS);
     btstack_run_loop_add_timer(&zblf_timer);  
@@ -823,7 +859,7 @@ int btstack_main(int argc, const char * argv[]){
     (void)argc;
     (void)argv;
 
-    initLeds();
+    
     setStateColor();
 
     // Init protocols
@@ -905,6 +941,8 @@ int btstack_main(int argc, const char * argv[]){
     // turn on!
     hci_power_control(HCI_POWER_ON);
 
+    setBTCallStatus(3);
+    esp_mqtt_client_publish(mqttclient, localtopic, "free", 0, 0, 1);
     hfp_hf_establish_service_level_connection(device_addr);
 
     printf("btstack_run_loop_set_timer_handler()...\n");
