@@ -31,7 +31,7 @@
  * THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- * Please inquire about commercial licensing options at 
+ * Please inquire about commercial licensing options at
  * contact@bluekitchen-gmbh.com
  *
  */
@@ -54,9 +54,9 @@
 // *****************************************************************************
 /* EXAMPLE_START(hfp_hs_demo): HFP HF - Hands-Free
  *
- * @text This  HFP Hands-Free example demonstrates how to receive 
- * an output from a remote HFP audio gateway (AG), and, 
- * if HAVE_BTSTACK_STDIN is defined, how to control the HFP AG. 
+ * @text This  HFP Hands-Free example demonstrates how to receive
+ * an output from a remote HFP audio gateway (AG), and,
+ * if HAVE_BTSTACK_STDIN is defined, how to control the HFP AG.
  */
 // *****************************************************************************
 
@@ -144,7 +144,7 @@ void setBTConfig(char * _bttopic, char * _localtopic, char * phoneMac, esp_mqtt_
     mqttclient = client;
     printf("setBTConfig(%s, %s, %s)\n", bttopic, localtopic, device_addr_string);
 }
-    
+
 void initLeds() {
     rmt_new_tx_channel(&tx_chan_config, &led_chan);
     rmt_new_led_strip_encoder(&encoder_config, &led_encoder);
@@ -163,6 +163,7 @@ static void setLedsColor(uint32_t red, uint32_t green, uint32_t blue ) {
 }
 
 int BTCallState = 0;
+int BTCallSetup = 0;
 int SIPCallState = 0;
 int LocalState = 0;
 static void setStateColor() {
@@ -171,19 +172,26 @@ static void setStateColor() {
         setLedsColor((int)LED_BRIGHTNESS/4 , (int)LED_BRIGHTNESS/4, (int)LED_BRIGHTNESS/4);
     } else if (SIPCallState == 3) {
         printf("Leds GREEN\r\n");
-        setLedsColor(0 , LED_BRIGHTNESS/4, 0);
+        setLedsColor(0 , (int)LED_BRIGHTNESS/4, 0);
     } else if ((BTCallState == 0 || BTCallState == 3) && SIPCallState == 0 && LocalState == 0) {
         printf("Leds OFF\r\n");
         setLedsColor(0, 0 ,0);
-    } else if (BTCallState == 1 || SIPCallState == 1) {
+    } else if (SIPCallState == 1) {
         printf("Leds YELLOW\r\n");
-        setLedsColor(LED_BRIGHTNESS, LED_BRIGHTNESS/2 ,0);
-    } else if (SIPCallState == 2) {
-        printf("Leds PURPLE\r\n");
-        setLedsColor(LED_BRIGHTNESS/2, 0 , LED_BRIGHTNESS/2);
-    } else if (BTCallState == 2) {
+        setLedsColor(LED_BRIGHTNESS, (int)LED_BRIGHTNESS/4 ,0);
+    } else if (BTCallState == 1) {
         printf("Leds BLUE\r\n");
-        setLedsColor(0 ,0, LED_BRIGHTNESS);
+        setLedsColor(0, 0,LED_BRIGHTNESS);
+    } else if (SIPCallState == 2) {
+        printf("Leds RED\r\n");
+        setLedsColor(LED_BRIGHTNESS, 0 ,0);
+      //printf("Leds RED\r\n");
+        //setLedsColor(LED_BRIGHTNESS, 0 ,0);
+    } else if (BTCallState == 2) {
+        printf("Leds PURPLE\r\n");
+        setLedsColor(LED_BRIGHTNESS, 0 , (int)LED_BRIGHTNESS/4);
+        //printf("Leds BLUE\r\n");
+        //setLedsColor(0 ,0, LED_BRIGHTNESS);
     } else if (LocalState == 1) {
         printf("Leds RED\r\n");
         setLedsColor(LED_BRIGHTNESS, 0 ,0);
@@ -195,6 +203,7 @@ static void setStateColor() {
 
 static void setBTCallStatus(int state) {
     BTCallState = state;
+    printf("BTCallState=%d\r\n", BTCallState);
     setStateColor();
     if (state == 1) {
         esp_mqtt_client_publish(mqttclient, bttopic, "early", 0, 0, 1);
@@ -234,7 +243,7 @@ static void report_status(uint8_t status, const char * message){
 
 #ifdef HAVE_BTSTACK_STDIN
 
-// Testig User Interface 
+// Testig User Interface
 static void show_usage(void){
     bd_addr_t iut_address;
     gap_local_bd_addr(iut_address);
@@ -264,7 +273,7 @@ static void show_usage(void){
     printf("k/K - deactivate/activate call waiting notification\n");
     printf("l/L - deactivate/activate calling line notification\n");
     printf("n/N - deactivate/activate voice recognition\n");
-    
+
     printf("0123456789#*-+ - send DTMF dial tones\n");
     printf("x - request phone number for voice tag     | X - current call status (ECS)\n");
     printf("y - release call with index 2 (ECC)        | Y - private consultation with call 2(ECC)\n");
@@ -623,7 +632,7 @@ static void hfp_hf_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
 
                 case HCI_EVENT_SCO_CAN_SEND_NOW:
                     break;
-                    
+
                 case HCI_EVENT_HFP_META:
                     switch (hci_event_hfp_meta_get_subevent_code(event)) {
                         case HFP_SUBEVENT_SERVICE_LEVEL_CONNECTION_ESTABLISHED:
@@ -646,12 +655,12 @@ static void hfp_hf_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
                             printf("Service level connection released.\n\n");
                             break;
                         case HFP_SUBEVENT_AUDIO_CONNECTION_ESTABLISHED:
-                            
+
                             status = hfp_subevent_audio_connection_established_get_status(event);
                             if (status != ERROR_CODE_SUCCESS){
                                 printf("Audio connection establishment failed with status 0x%02x\n", status);
                                 break;
-                            } 
+                            }
                             status =  hfp_hf_release_audio_connection(acl_handle);
                             if (BTCallState != 1) {
                                 setBTCallStatus(2);
@@ -684,24 +693,38 @@ static void hfp_hf_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
                             break;
 
                         case HFP_SUBEVENT_AG_INDICATOR_MAPPING:
-                            printf("AG Indicator Mapping | INDEX %d: range [%d, %d], name '%s'\n", 
-                                hfp_subevent_ag_indicator_mapping_get_indicator_index(event), 
+                            printf("AG Indicator Mapping | INDEX %d: range [%d, %d], name '%s'\n",
+                                hfp_subevent_ag_indicator_mapping_get_indicator_index(event),
                                 hfp_subevent_ag_indicator_mapping_get_indicator_min_range(event),
                                 hfp_subevent_ag_indicator_mapping_get_indicator_max_range(event),
                                 (const char*) hfp_subevent_ag_indicator_mapping_get_indicator_name(event));
                             break;
 
                         case HFP_SUBEVENT_AG_INDICATOR_STATUS_CHANGED:
-                            printf("AG Indicator Status  | INDEX %d: status 0x%02x, '%s'\n", 
-                                hfp_subevent_ag_indicator_status_changed_get_indicator_index(event), 
+                            printf("AG Indicator Status  | INDEX %d: status 0x%02x, '%s'\n",
+                                hfp_subevent_ag_indicator_status_changed_get_indicator_index(event),
                                 hfp_subevent_ag_indicator_status_changed_get_indicator_status(event),
                                 (const char*) hfp_subevent_ag_indicator_status_changed_get_indicator_name(event));
+
+                            if (hfp_subevent_ag_indicator_status_changed_get_indicator_index(event) == 2) {
+                              if (hfp_subevent_ag_indicator_status_changed_get_indicator_status(event) == 1) {
+                                setBTCallStatus(2);
+                              } else if (hfp_subevent_ag_indicator_status_changed_get_indicator_status(event) == 0) {
+                                setBTCallStatus(0);
+                              }
+                            } else if (hfp_subevent_ag_indicator_status_changed_get_indicator_index(event) == 3) {
+                              if (hfp_subevent_ag_indicator_status_changed_get_indicator_status(event) == 0 && BTCallState != 2) {
+                                setBTCallStatus(0);
+                              } else if (hfp_subevent_ag_indicator_status_changed_get_indicator_status(event) == 2) {
+                                setBTCallStatus(1);
+                              }
+                            }
                             break;
                         case HFP_SUBEVENT_NETWORK_OPERATOR_CHANGED:
-                            printf("NETWORK_OPERATOR_CHANGED, operator mode %d, format %d, name %s\n", 
-                                hfp_subevent_network_operator_changed_get_network_operator_mode(event), 
-                                hfp_subevent_network_operator_changed_get_network_operator_format(event), 
-                                (char *) hfp_subevent_network_operator_changed_get_network_operator_name(event));          
+                            printf("NETWORK_OPERATOR_CHANGED, operator mode %d, format %d, name %s\n",
+                                hfp_subevent_network_operator_changed_get_network_operator_mode(event),
+                                hfp_subevent_network_operator_changed_get_network_operator_format(event),
+                                (char *) hfp_subevent_network_operator_changed_get_network_operator_name(event));
                             break;
                         case HFP_SUBEVENT_EXTENDED_AUDIO_GATEWAY_ERROR:
                             printf("EXTENDED_AUDIO_GATEWAY_ERROR_REPORT, status 0x%02x\n",
@@ -721,10 +744,10 @@ static void hfp_hf_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
                             if (BTCallState == 1) {
                                 setBTCallStatus(0);
                             }
-                            
+
                             break;
                         case HFP_SUBEVENT_NUMBER_FOR_VOICE_TAG:
-                            printf("Phone number for voice tag: %s\n", 
+                            printf("Phone number for voice tag: %s\n",
                                 (const char *) hfp_subevent_number_for_voice_tag_get_number(event));
                             break;
                         case HFP_SUBEVENT_SPEAKER_VOLUME:
@@ -749,16 +772,16 @@ static void hfp_hf_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
                             printf("  - type      : %d \n", hfp_subevent_enhanced_call_status_get_bnip_type(event));
                             printf("  - number    : %s \n", hfp_subevent_enhanced_call_status_get_bnip_number(event));
                             break;
-                        
+
                         case HFP_SUBEVENT_VOICE_RECOGNITION_ACTIVATED:
                             status = hfp_subevent_voice_recognition_activated_get_status(event);
                             if (status != ERROR_CODE_SUCCESS){
                                 printf("Voice Recognition Activate command failed, status 0x%02x\n", status);
                                 break;
                             }
-                            
+
                             switch (hfp_subevent_voice_recognition_activated_get_enhanced(event)){
-                                case 0: 
+                                case 0:
                                     printf("\nVoice recognition ACTIVATED\n\n");
                                     break;
                                 default:
@@ -768,7 +791,7 @@ static void hfp_hf_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
                                     break;
                             }
                             break;
-            
+
                         case HFP_SUBEVENT_VOICE_RECOGNITION_DEACTIVATED:
                             status = hfp_subevent_voice_recognition_deactivated_get_status(event);
                             if (status != ERROR_CODE_SUCCESS){
@@ -784,17 +807,17 @@ static void hfp_hf_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
                             break;
 
                         case HFP_SUBEVENT_ENHANCED_VOICE_RECOGNITION_AG_READY_TO_ACCEPT_AUDIO_INPUT:
-                            printf("\nEnhanced Voice recognition AG status: AG READY TO ACCEPT AUDIO INPUT\n\n");                            
+                            printf("\nEnhanced Voice recognition AG status: AG READY TO ACCEPT AUDIO INPUT\n\n");
                             break;
                         case HFP_SUBEVENT_ENHANCED_VOICE_RECOGNITION_AG_IS_STARTING_SOUND:
-                            printf("\nEnhanced Voice recognition AG status: AG IS STARTING SOUND\n\n");                            
+                            printf("\nEnhanced Voice recognition AG status: AG IS STARTING SOUND\n\n");
                             break;
                         case HFP_SUBEVENT_ENHANCED_VOICE_RECOGNITION_AG_IS_PROCESSING_AUDIO_INPUT:
-                            printf("\nEnhanced Voice recognition AG status: AG IS PROCESSING AUDIO INPUT\n\n");                            
+                            printf("\nEnhanced Voice recognition AG status: AG IS PROCESSING AUDIO INPUT\n\n");
                             break;
-                        
+
                         case HFP_SUBEVENT_ENHANCED_VOICE_RECOGNITION_AG_MESSAGE:
-                            printf("\nEnhanced Voice recognition AG message: \'%s\'\n", hfp_subevent_enhanced_voice_recognition_ag_message_get_text(event));                            
+                            printf("\nEnhanced Voice recognition AG message: \'%s\'\n", hfp_subevent_enhanced_voice_recognition_ag_message_get_text(event));
                             break;
 
                         case HFP_SUBEVENT_ECHO_CANCELING_AND_NOISE_REDUCTION_DEACTIVATE:
@@ -819,16 +842,16 @@ static void hfp_hf_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
 
 int waitConnection = 0;
 static void zblf_timer_handler(btstack_timer_source_t * ts){
-    //printf("\nTimer\n"); 
-    
+    //printf("\nTimer\n");
+
     if (connectionStatus == 0) {
         connectionStatus = 2;
         waitConnection = 35;
-        printf("Trying reconnect\n"); 
+        printf("Trying reconnect\n");
         hfp_hf_establish_service_level_connection(device_addr);
     } else if (connectionStatus == 2) {
         waitConnection--;
-        //printf("\nWait %d\n", waitConnection); 
+        //printf("\nWait %d\n", waitConnection);
         if (waitConnection <= 0) {
             connectionStatus = 0;
         }
@@ -841,15 +864,15 @@ static void zblf_timer_handler(btstack_timer_source_t * ts){
 
 
     btstack_run_loop_set_timer(&zblf_timer, ZBLF_PERIOD_MS);
-    btstack_run_loop_add_timer(&zblf_timer);  
+    btstack_run_loop_add_timer(&zblf_timer);
 }
 
 /* @section Main Application Setup
  *
- * @text Listing MainConfiguration shows main application code. 
- * To run a HFP HF service you need to initialize the SDP, and to create and register HFP HF record with it. 
+ * @text Listing MainConfiguration shows main application code.
+ * To run a HFP HF service you need to initialize the SDP, and to create and register HFP HF record with it.
  * The packet_handler is used for sending commands to the HFP AG. It also receives the HFP AG's answers.
- * The stdin_process callback allows for sending commands to the HFP AG. 
+ * The stdin_process callback allows for sending commands to the HFP AG.
  * At the end the Bluetooth stack is started.
  */
 
@@ -859,7 +882,7 @@ int btstack_main(int argc, const char * argv[]){
     (void)argc;
     (void)argv;
 
-    
+
     setStateColor();
 
     // Init protocols
@@ -886,8 +909,8 @@ int btstack_main(int argc, const char * argv[]){
     uint16_t hf_supported_features          =
         (1<<HFP_HFSF_CLI_PRESENTATION_CAPABILITY) |
         (1<<HFP_HFSF_HF_INDICATORS)         |
-        (1<<HFP_HFSF_ENHANCED_CALL_STATUS) |
-        (1<<HFP_HFSF_EC_NR_FUNCTION);
+      (1<<HFP_HFSF_ENHANCED_CALL_STATUS);// |
+    //(1<<HFP_HFSF_EC_NR_FUNCTION);
 
     hfp_hf_init(rfcomm_channel_nr);
     hfp_hf_init_supported_features(hf_supported_features);
@@ -916,8 +939,9 @@ int btstack_main(int argc, const char * argv[]){
     gap_discoverable_control(1);
 
     // - Set Class of Device - Service Class: Audio, Major Device Class: Audio, Minor: Hands-Free device
-    //gap_set_class_of_device(0x200408);
-    gap_set_class_of_device(0x40050c);
+    // exemples de classehttps://developer.android.com/reference/android/bluetooth/BluetoothClass.Device#WEARABLE_PAGER
+    gap_set_class_of_device(0x200408);
+    //gap_set_class_of_device(0x00800714);
 
     // - Allow for role switch in general and sniff mode
     gap_set_default_link_policy_settings( LM_LINK_POLICY_ENABLE_ROLE_SWITCH | LM_LINK_POLICY_ENABLE_SNIFF_MODE );
@@ -950,7 +974,7 @@ int btstack_main(int argc, const char * argv[]){
     printf("btstack_run_loop_set_timer()...\n");
     btstack_run_loop_set_timer(&zblf_timer, ZBLF_PERIOD_MS);
     printf("btstack_run_loop_add_timer()...\n");
-    btstack_run_loop_add_timer(&zblf_timer);  
+    btstack_run_loop_add_timer(&zblf_timer);
 
     return 0;
 }

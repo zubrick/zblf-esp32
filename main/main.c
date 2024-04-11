@@ -48,7 +48,7 @@
 
 #include "string.h"
 
-#include "esp_system.h" //esp_init funtions esp_err_t 
+#include "esp_system.h" //esp_init funtions esp_err_t
 #include "esp_wifi.h" //esp_wifi_init functions and wifi operations
 #include "esp_log.h" //for showing logs
 #include "esp_event.h" //for wifi event
@@ -95,14 +95,14 @@ char * localtopic = NULL;
 
 char* strconcat(char *str1, const char *str2)
 {
-	char *str = NULL;
+        char *str = NULL;
     size_t len1 = 0;
     size_t len2 = 0;
 
-	if (str1)
-    	len1 = strlen(str1);
+        if (str1)
+        len1 = strlen(str1);
     if (str2)
-    	len2 = strlen(str2);
+        len2 = strlen(str2);
     if (!(str = calloc(sizeof(char), (len1 + len2 + 1))))
         return NULL;
     if (str1)
@@ -142,7 +142,7 @@ void wifi_connection(){
     wifi_config_t wifi_configuration ={ //struct wifi_config_t var wifi_configuration
         .sta= {
             .ssid = "",
-            .password= "" /*we are sending a const char of ssid and password which we will strcpy in following line so leaving it blank*/ 
+            .password= "" /*we are sending a const char of ssid and password which we will strcpy in following line so leaving it blank*/
         }//also this part is used if you donot want to use Kconfig.projbuild
     };
     strcpy((char*)wifi_configuration.sta.ssid,ssid); // copy chars from hardcoded configs to struct
@@ -184,7 +184,7 @@ static void saveConfig(char * configLine) {
         fflush(stdout);
         esp_restart();
     }
-    
+
 }
 
 #define TAG "mqtt_connecion"
@@ -205,7 +205,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
                 ESP_LOGE(TAG, "Failed to get base MAC address from EFUSE BLK0. (%s)", esp_err_to_name(ret));
                 ESP_LOGE(TAG, "Aborting");
                 abort();
-            } 
+            }
             uint8_t index = 0;
             char macId[50];
             for(uint8_t i=0; i<6; i++){
@@ -232,16 +232,16 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         if (strncmp(event->topic, MQTT_CONF_TOPIC, strlen(MQTT_CONF_TOPIC)-1) == 0) {
             printf("CONFIG\r\n");
             saveConfig(event->data);
-        } else if (strncmp(event->topic, MQTT_TOPIC, strlen(MQTT_TOPIC)-1) == 0) {             
+        } else if (strncmp(event->topic, MQTT_TOPIC, strlen(MQTT_TOPIC)-1) == 0) {
             if (strncmp(event->data, "confirmed", event->data_len) == 0) {
                 printf("state confirmed\r\n");
-                setSIPCallStatus(2);            
+                setSIPCallStatus(2);
             } else if (strncmp(event->data, "early", event->data_len) == 0) {
                 printf("state early\r\n");
-                setSIPCallStatus(1);            
+                setSIPCallStatus(1);
             } else {
                 printf("state terminated\r\n");
-                setSIPCallStatus(0);  
+                setSIPCallStatus(0);
             }
         }
     } else if(event_id == MQTT_EVENT_ERROR) {
@@ -329,22 +329,23 @@ int app_main(void){
 
     if (gpio_get_level(BTNBTN_GPIO) == 0) {
         strcpy(extension, "xxx");
+        printf("ERASING CONFIG\n");
     }
     if (strncmp(extension, "xxx", 3) == 0) {
-        setSIPCallStatus(4); 
-    } else {    
-        setSIPCallStatus(3); 
+        setSIPCallStatus(4);
+    } else {
+        setSIPCallStatus(3);
     }
     wifi_connection();
-    vTaskDelay(10000 /portTICK_PERIOD_MS); //delay is important cause we need to let it connect to wifi 
-        
-    esp_mqtt_client_handle_t mqttclient = mqtt_initialize(); // MQTT start app as shown above most important code for MQTT   
+    vTaskDelay(10000 /portTICK_PERIOD_MS); //delay is important cause we need to let it connect to wifi
+
+    esp_mqtt_client_handle_t mqttclient = mqtt_initialize(); // MQTT start app as shown above most important code for MQTT
 
     if (strncmp(extension, "xxx", 3) == 0) {
         vTaskDelay(60000 /portTICK_PERIOD_MS);
-    } else {  
-        vTaskDelay(10000 /portTICK_PERIOD_MS); //delay is important cause we need to let it connect to wifi 
-        
+    } else {
+        vTaskDelay(10000 /portTICK_PERIOD_MS); //delay is important cause we need to let it connect to wifi
+
         setBTConfig(bttopic, localtopic, phoneMac, mqttclient);
 
         // optional: enable packet logger
