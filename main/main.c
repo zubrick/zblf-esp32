@@ -315,7 +315,7 @@ static void nvsReadConfig () {
 
 extern int btstack_main(int argc, const char * argv[]);
 extern void initLeds();
-extern void setBTConfig(char * _bttopic, char * _localtopic, char * phoneMac, esp_mqtt_client_handle_t client);
+extern void setBTConfig(char * _bttopic, char * _localtopic, char * phoneMac, esp_mqtt_client_handle_t client, char * extension);
 
 int app_main(void){
     gpio_set_direction(BTNLED_GPIO, GPIO_MODE_OUTPUT);
@@ -346,7 +346,7 @@ int app_main(void){
     } else {
         vTaskDelay(10000 /portTICK_PERIOD_MS); //delay is important cause we need to let it connect to wifi
 
-        setBTConfig(bttopic, localtopic, phoneMac, mqttclient);
+        setBTConfig(bttopic, localtopic, phoneMac, mqttclient, extension);
 
         // optional: enable packet logger
         // hci_dump_init(hci_dump_embedded_stdout_get_instance());
