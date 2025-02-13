@@ -104,6 +104,8 @@ static uint16_t indicators[1] = {0x01};
 static btstack_packet_callback_registration_t hci_event_callback_registration;
 static char cmd;
 
+static char btname[9];
+
 static void dump_supported_codecs(void){
     printf("Supported codecs: CVSD");
     if (hci_extended_sco_link_supported()) {
@@ -137,11 +139,13 @@ rmt_transmit_config_t tx_config = {
     .loop_count = 0, // no transfer loop
 };
 
-void setBTConfig(char * _bttopic, char * _localtopic, char * phoneMac, esp_mqtt_client_handle_t client) {
+void setBTConfig(char * _bttopic, char * _localtopic, char * phoneMac, esp_mqtt_client_handle_t client, char * extension) {
     device_addr_string = phoneMac;
     bttopic = _bttopic;
     localtopic = _localtopic;
     mqttclient = client;
+    extension = extension;
+    sprintf(btname, "zBLF-%s", extension);
     printf("setBTConfig(%s, %s, %s)\n", bttopic, localtopic, device_addr_string);
 }
 
@@ -846,7 +850,7 @@ static void zblf_timer_handler(btstack_timer_source_t * ts){
 
     if (connectionStatus == 0) {
         connectionStatus = 2;
-        waitConnection = 35;
+        waitConnection = 350;
         printf("Trying reconnect\n");
         hfp_hf_establish_service_level_connection(device_addr);
     } else if (connectionStatus == 2) {
@@ -933,7 +937,8 @@ int btstack_main(int argc, const char * argv[]){
     // - Set local name with a template Bluetooth address, that will be automatically
     //   replaced with an actual address once it is available, i.e. when BTstack boots
     //   up and starts talking to a Bluetooth module.
-    gap_set_local_name("zBLF 00:00:00:00:00:00");
+
+    gap_set_local_name(btname);
 
     // - Allow to show up in Bluetooth inquiry
     gap_discoverable_control(1);
@@ -967,7 +972,9 @@ int btstack_main(int argc, const char * argv[]){
 
     setBTCallStatus(3);
     esp_mqtt_client_publish(mqttclient, localtopic, "free", 0, 0, 1);
-    hfp_hf_establish_service_level_connection(device_addr);
+    //hfp_hf_establish_service_level_connection(device_addr);
+    waitConnection = 60;
+    connectionStatus = 2;
 
     printf("btstack_run_loop_set_timer_handler()...\n");
     btstack_run_loop_set_timer_handler(&zblf_timer, zblf_timer_handler);
