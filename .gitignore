@@ -119,3 +119,5 @@ flasher_args.json
 
 #project specific
 main/config.h
+*.dump
+/sdkconfig.bkp2
