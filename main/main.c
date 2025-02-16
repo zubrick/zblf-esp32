@@ -75,7 +75,9 @@ char phoneMac[18];
 char * siptopic = NULL;
 char * bttopic = NULL;
 char * localtopic = NULL;
-
+#ifdef LIGHTS
+char * lightstopic = NULL;
+#endif
 
 #include <stddef.h>
 
@@ -190,6 +192,8 @@ static void saveConfig(char * configLine) {
 #define TAG "mqtt_connecion"
 #define TAG3 "mqtt_data"
 extern void setSIPCallStatus(int state);
+extern void toggleLightsStatus();
+extern void setLightsColor(uint32_t red, uint32_t green, uint32_t blue);
 
 static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data) { //here esp_mqtt_event_handle_t is a struct which receieves struct event from mqtt app start funtion
     esp_mqtt_event_handle_t event = event_data;
@@ -217,6 +221,10 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         } else {
             printf("Subscribing to topic %s\n", siptopic);
             esp_mqtt_client_subscribe(client, siptopic, 0); //in mqtt we require a topic to subscribe and client is from event client and 0 is quality of service it can be 1 or 2
+#ifdef LIGHTS
+            esp_mqtt_client_subscribe(client, lightstopic, 0);
+#endif
+
         }
         ESP_LOGI(TAG3, "sent subscribe successful" );
     } else if(event_id == MQTT_EVENT_DISCONNECTED) {
@@ -243,6 +251,18 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
                 printf("state terminated\r\n");
                 setSIPCallStatus(0);
             }
+#ifdef LIGHTS
+        } else if (strncmp(event->topic, MQTT_LIGHTS_TOPIC, strlen(MQTT_LIGHTS_TOPIC)-1) == 0) {
+            if (strncmp(event->data, "toggle", event->data_len) == 0) {
+              printf("lights toggée\r\n");
+              toggleLightsStatus();
+            } else if (strncmp(event->data, "on", event->data_len) == 0) {
+              printf("lights on\r\n");
+              setLightsColor(LIGHTS_R, LIGHTS_G, LIGHTS_B);
+            } else {
+              setLightsColor(0, 0, 0);
+            }
+#endif
         }
     } else if(event_id == MQTT_EVENT_ERROR) {
         ESP_LOGI(TAG3, "MQTT_EVENT_ERROR");
@@ -302,6 +322,9 @@ static void nvsReadConfig () {
                 siptopic = strconcat(MQTT_TOPIC, extension);
                 bttopic = strconcat(MQTT_BTTOPIC, extension);
                 localtopic = strconcat(MQTT_LOCALTOPIC, extension);
+#ifdef LIGHTS
+                lightstopic = strconcat(MQTT_LIGHTS_TOPIC, extension);
+#endif
                 break;
             case ESP_ERR_NVS_NOT_FOUND:
                 printf("The value is not initialized yet!\n");
@@ -323,9 +346,15 @@ int app_main(void){
 
     gpio_set_direction(BTNBTN_GPIO, GPIO_MODE_INPUT);
 
+#ifdef LIGHTS
+    gpio_set_direction(LIGHTS_BTN_GPIO, GPIO_MODE_INPUT);
+#endif
+
     initLeds();
     nvs_flash_init(); // this is important in wifi case to store configurations , code will not work if this is not added
     nvsReadConfig();
+
+    setLightsColor(LIGHTS_R, LIGHTS_G, LIGHTS_B);
 
     if (gpio_get_level(BTNBTN_GPIO) == 0) {
         strcpy(extension, "xxx");
