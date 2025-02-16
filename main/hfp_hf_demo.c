@@ -140,7 +140,7 @@ rmt_transmit_config_t tx_config = {
 };
 
 #ifdef LIGHTS
-static uint8_t light_strip_pixels[LIGHTS_LED_NUMBERS * 3];
+static uint8_t lights_strip_pixels[LIGHTS_LED_NUMBERS * 3];
 
 rmt_channel_handle_t lights_chan = NULL;
 rmt_tx_channel_config_t lights_tx_chan_config = {
@@ -150,7 +150,7 @@ rmt_tx_channel_config_t lights_tx_chan_config = {
   .resolution_hz = RMT_LED_STRIP_RESOLUTION_HZ,
   .trans_queue_depth = 4, // set the number of transactions that can be pending in the background
 };
-rmt_encoder_handle_t lights_led_encoder = NULL;
+rmt_encoder_handle_t lights_encoder = NULL;
 #endif
 
 void setBTConfig(char * _bttopic, char * _localtopic, char * phoneMac, esp_mqtt_client_handle_t client, char * extension) {
@@ -210,7 +210,7 @@ void toggleLightsStatus() {
     setLightsColor(0, 0, 0);
     esp_mqtt_client_publish(mqttclient, localtopic, "free", 0, 0, 1);
   }
-
+}
 #endif
 
   int BTCallState = 0;
