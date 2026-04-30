@@ -40,6 +40,10 @@ static esp_gattc_descr_elem_t *descr_elem_result = NULL;
 static void periodic_timer_callback(void* arg);
 esp_timer_handle_t periodic_timer;
 
+static char* btname;
+
+void (*btStatusCallback)(int);
+
 const esp_timer_create_args_t periodic_timer_args = {
     .callback = &periodic_timer_callback,
     /* name is optional, but may help identify the timer when debugging */
@@ -529,16 +533,20 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
             //uint8_t *notificationUID = &param->notify.value[4];
             if (param->notify.value[0] == EventIDNotificationAdded && param->notify.value[2] == CategoryIDIncomingCall) {
                  ESP_LOGW(BLE_ANCS_TAG, "IncomingCall");
+                 btStatusCallback(1);
                  //esp_get_notification_attributes(notificationUID, sizeof(p_attr)/sizeof(esp_noti_attr_list_t), p_attr);
                  //Call reject
                  //esp_perform_notification_action(notificationUID, ActionIDNegative);
             } if (param->notify.value[0] == EventIDNotificationRemoved && param->notify.value[2] == CategoryIDIncomingCall) {
+                 btStatusCallback(4);
                  ESP_LOGW(BLE_ANCS_TAG, "IncomingCallFinished");
             } else if (param->notify.value[0] == EventIDNotificationAdded && param->notify.value[2] == CategoryIDOnCall) {
                  ESP_LOGW(BLE_ANCS_TAG, "OnCall");
+                 btStatusCallback(2);
                  //esp_get_notification_attributes(notificationUID, sizeof(p_attr)/sizeof(esp_noti_attr_list_t), p_attr);
              }  else if (param->notify.value[0] == EventIDNotificationRemoved && param->notify.value[2] == CategoryIDOnCall) {
                  ESP_LOGW(BLE_ANCS_TAG, "CallFinished");
+                 btStatusCallback(0);
              } else if (param->notify.value[0] == EventIDNotificationAdded) {
                 //get more information
                 //ESP_LOGI(BLE_ANCS_TAG, "Get detailed information");
@@ -649,9 +657,12 @@ void init_timer(void)
     ESP_ERROR_CHECK(esp_timer_create(&periodic_timer_args, &periodic_timer));
 }
 
-void app_main(void)
+void ble_ancs_init(void (*_statusCallback)(int), char * _btname)
 {
     esp_err_t ret;
+
+    btname = _btname;
+    btStatusCallback = *_statusCallback
 
     // Initialize NVS.
     ret = nvs_flash_init();

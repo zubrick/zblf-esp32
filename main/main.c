@@ -29,14 +29,7 @@
  *
  */
 
-/*
- *  main.c
- *
- *  Minimal main application that initializes BTstack, prepares the example and enters BTstack's Run Loop.
- *
- *  If needed, you can create other threads. Please note that BTstack's API is not thread-safe and can only be
- *  called from BTstack timers or in response to its callbacks, e.g. packet handlers.
- */
+
 
 #include "config.h"
 
@@ -57,6 +50,9 @@
 #include "esp_tls.h"
 #include "driver/gpio.h"
 #include "nvs.h"
+#include "mqtt_client.h"
+
+#include <stddef.h>
 
 const char * ssid = WIFI_SSID;
 const char * pass = WIFI_PASS;
@@ -70,7 +66,11 @@ char * siptopic = NULL;
 char * bttopic = NULL;
 char * localtopic = NULL;
 
-#include <stddef.h>
+static bd_addr_t device_addr;
+
+static char btname[9];
+
+#define ZBLF_PERIOD_MS 1000
 
 // warn about unsuitable sdkconfig
 #include "sdkconfig.h"
@@ -180,6 +180,129 @@ static void saveConfig(char * configLine) {
 
 }
 
+
+#define RMT_LED_STRIP_RESOLUTION_HZ 10000000 // 10MHz resolution, 1 tick = 0.1us (led strip needs a high resolution)
+
+esp_mqtt_client_handle_t mqttclient;
+
+static uint8_t led_strip_pixels[LED_NUMBERS * 3];
+
+rmt_channel_handle_t led_chan = NULL;
+rmt_tx_channel_config_t tx_chan_config = {
+  .clk_src = RMT_CLK_SRC_DEFAULT, // select source clock
+  .gpio_num = STATUSLED_GPIO,
+  .mem_block_symbols = 64, // increase the block size can make the LED less flickering
+  .resolution_hz = RMT_LED_STRIP_RESOLUTION_HZ,
+  .trans_queue_depth = 4, // set the number of transactions that can be pending in the background
+};
+rmt_encoder_handle_t led_encoder = NULL;
+led_strip_encoder_config_t encoder_config = {
+  .resolution = RMT_LED_STRIP_RESOLUTION_HZ,
+};
+rmt_transmit_config_t tx_config = {
+  .loop_count = 0, // no transfer loop
+};
+
+void setBTConfig(char * _bttopic, char * _localtopic, char * phoneMac, esp_mqtt_client_handle_t client, char * extension) {
+  bttopic = _bttopic;
+  localtopic = _localtopic;
+  mqttclient = client;
+  extension = extension;
+  sprintf(btname, "zBLF-%s", extension);
+  printf("setBTConfig(%s, %s, %s)\n", bttopic, localtopic, device_addr_string);
+}
+
+void initLeds() {
+  rmt_new_tx_channel(&tx_chan_config, &led_chan);
+  rmt_new_led_strip_encoder(&encoder_config, &led_encoder);
+  rmt_enable(led_chan);
+}
+
+static void setLedsColor(uint32_t red, uint32_t green, uint32_t blue ) {
+  for (int j = 0; j < LED_NUMBERS; j++) {
+    led_strip_pixels[j * 3 + 0] = green;
+    led_strip_pixels[j * 3 + 1] = red;
+    led_strip_pixels[j * 3 + 2] = blue;
+  }
+  // Flush RGB values to LEDs
+  rmt_transmit(led_chan, led_encoder, led_strip_pixels, sizeof(led_strip_pixels), &tx_config);
+  rmt_tx_wait_all_done(led_chan, portMAX_DELAY);
+}
+
+int BTCallState = 0;
+int BTCallSetup = 0;
+int SIPCallState = 0;
+int LocalState = 0;
+static void setStateColor() {
+  if (SIPCallState == 4) {
+    printf("Leds WHITE\r\n");
+    setLedsColor((int)LED_BRIGHTNESS/4 , (int)LED_BRIGHTNESS/4, (int)LED_BRIGHTNESS/4);
+  } else if (SIPCallState == 3) {
+    printf("Leds GREEN\r\n");
+    setLedsColor(0 , (int)LED_BRIGHTNESS/4, 0);
+  } else if ((BTCallState == 0 || BTCallState == 3) && SIPCallState == 0 && LocalState == 0) {
+    printf("Leds OFF\r\n");
+    setLedsColor(0, 0 ,0);
+  } else if (SIPCallState == 1) {
+    printf("Leds YELLOW\r\n");
+    setLedsColor(LED_BRIGHTNESS, (int)LED_BRIGHTNESS/4 ,0);
+  } else if (BTCallState == 1) {
+    printf("Leds BLUE\r\n");
+    setLedsColor(0, 0,LED_BRIGHTNESS);
+  } else if (SIPCallState == 2) {
+    printf("Leds RED\r\n");
+    setLedsColor(LED_BRIGHTNESS, 0 ,0);
+    //printf("Leds RED\r\n");
+    //setLedsColor(LED_BRIGHTNESS, 0 ,0);
+  } else if (BTCallState == 2) {
+    printf("Leds PURPLE\r\n");
+    setLedsColor(LED_BRIGHTNESS, 0 , (int)LED_BRIGHTNESS/4);
+    //printf("Leds BLUE\r\n");
+    //setLedsColor(0 ,0, LED_BRIGHTNESS);
+  } else if (LocalState == 1) {
+    printf("Leds RED\r\n");
+    setLedsColor(LED_BRIGHTNESS, 0 ,0);
+  } else {
+    printf("Leds TURQUOISE\r\n");
+    setLedsColor(0, LED_BRIGHTNESS ,LED_BRIGHTNESS);
+  }
+}
+
+static void setBTCallStatus(int state) {
+  if (state == 4 && BTCallState == 2) {
+    state = 2;
+  }
+  BTCallState = state;
+  printf("BTCallState=%d\r\n", BTCallState);
+  setStateColor();
+  if (state == 1) {
+    esp_mqtt_client_publish(mqttclient, bttopic, "early", 0, 0, 1);
+  } else if (state == 2) {
+    esp_mqtt_client_publish(mqttclient, bttopic, "confirmed", 0, 0, 1);
+  } else if (state == 3) {
+    esp_mqtt_client_publish(mqttclient, bttopic, "unknown", 0, 0, 1);
+  } else {
+    esp_mqtt_client_publish(mqttclient, bttopic, "terminated", 0, 0, 1);
+  }
+}
+
+void setSIPCallStatus(int state) {
+  SIPCallState = state;
+  printf("SIPCallState=%d\r\n", SIPCallState);
+  setStateColor();
+}
+
+void toggleLocalStatus() {
+  if (LocalState == 0) {
+    LocalState = 1;
+    esp_mqtt_client_publish(mqttclient, localtopic, "busy", 0, 0, 1);
+  } else {
+    LocalState = 0;
+    esp_mqtt_client_publish(mqttclient, localtopic, "free", 0, 0, 1);
+  }
+  setStateColor();
+}
+
 #define TAG "mqtt_connecion"
 #define TAG3 "mqtt_data"
 extern void setSIPCallStatus(int state);
@@ -262,9 +385,12 @@ static esp_mqtt_client_handle_t mqtt_initialize(void) {/*Depending on your websi
       .verification.certificate = cacert
     },
     .credentials = {
-      .username=MQTT_USER, //your username
-      .authentication.password=MQTT_PASS, //your adafruit io password
-    }
+      .username=MQTT_USER, //your MQTT username
+      .authentication.password=MQTT_PASS, //your MQTT password
+    },
+    .network = {
+      refresh_connection_after_ms = 3600000,
+    },
   };
   esp_mqtt_client_handle_t client=esp_mqtt_client_init(&mqtt_cfg); //sending struct as a parameter in init client function
   esp_mqtt_client_register_event(client, ESP_EVENT_ANY_ID, (esp_event_handler_t)mqtt_event_handler, client);
@@ -309,9 +435,34 @@ static void nvsReadConfig () {
   }
 }
 
-extern int btstack_main(int argc, const char * argv[]);
-extern void initLeds();
-extern void setBTConfig(char * _bttopic, char * _localtopic, char * phoneMac, esp_mqtt_client_handle_t client, char * extension);
+
+void ble_ancs_init(void (*_statusCallback)(int), char * _btname);
+
+int waitConnection = 0;
+int connectionRetries = 0;
+static void zblf_timer_callback(){
+  //printf("\nTimer\n");
+  if (connectionRetries > 5) {
+    esp_restart();
+  } else if (connectionStatus == 0) {
+    connectionStatus = 2;
+    waitConnection = 350;
+    connectionRetries++;
+    printf("Trying reconnect\n");
+    hfp_hf_establish_service_level_connection(device_addr);
+  } else if (connectionStatus == 2) {
+    waitConnection--;
+    //printf("\nWait %d\n", waitConnection);
+    if (waitConnection <= 0) {
+      connectionStatus = 0;
+    }
+  }
+  int btn = gpio_get_level(BTNBTN_GPIO);
+  if (btn == 0) {
+    printf("GPIO LEVEL IS %d\n", btn);
+    toggleLocalStatus();
+  }
+}
 
 int app_main(void){
   esp_err_t ret;
@@ -324,8 +475,6 @@ int app_main(void){
   initLeds();
   nvs_flash_init(); // this is important in wifi case to store configurations , code will not work if this is not added
   nvsReadConfig();
-
-  setLightsColor(LIGHTS_R, LIGHTS_G, LIGHTS_B);
 
   if (gpio_get_level(BTNBTN_GPIO) == 0) {
     strcpy(extension, "xxx");
@@ -345,10 +494,26 @@ int app_main(void){
     vTaskDelay(60000 /portTICK_PERIOD_MS);
   } else {
     vTaskDelay(10000 /portTICK_PERIOD_MS); //delay is important cause we need to let it connect to wifi
+    setStateColor();
 
     setBTConfig(bttopic, localtopic, phoneMac, mqttclient, extension);
 
-    bke_ancs_init();
+    setBTCallStatus(3);
+    esp_mqtt_client_publish(mqttclient, localtopic, "free", 0, 0, 1);
+    //hfp_hf_establish_service_level_connection(device_addr);
+    waitConnection = 60;
+    connectionStatus = 2;
+
+    const esp_timer_create_args_t zblf_timer_args = {
+            .callback = &zblf_timer_callback,
+            /* name is optional, but may help identify the timer when debugging */
+            .name = "zblf"
+    };
+    esp_timer_handle_t zblf_timer;
+    ESP_ERROR_CHECK(esp_timer_create(&zblf_timer_args, &zblf_timer));
+    ESP_ERROR_CHECK(esp_timer_start_periodic(zblf_timer, ZBLF_PERIOD_M));
+
+    ble_ancs_init(&setBTCallStatus, btname);
   }
 
   return 0;
