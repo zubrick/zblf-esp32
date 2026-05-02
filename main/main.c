@@ -149,10 +149,13 @@ void wifi_connection(){
   strcpy((char*)wifi_configuration.sta.ssid,ssid); // copy chars from hardcoded configs to struct
   strcpy((char*)wifi_configuration.sta.password,pass);
   esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_configuration);//setting up configs when event ESP_IF_WIFI_STA
+#ifdef CONFIG_IDF_TARGET_ESP32S3
+  esp_wifi_set_max_tx_power(13);
+#endif
   esp_wifi_start();//start connection with configurations provided in funtion
   esp_wifi_set_mode(WIFI_MODE_STA);//station mode selected
   esp_wifi_connect(); //connect with saved ssid and pass
-  printf( "wifi_init_softap finished. SSID:%s  password:%s",ssid,pass);
+  printf( "wifi_init_softap finished. SSID:%s  password:%s\n",ssid,pass);
 }
 
 static void saveConfig(char * configLine) {
@@ -522,8 +525,10 @@ int app_main(void){
   gpio_set_level(BTNLED_GPIO, 1);
 
   gpio_set_direction(BTNBTN_GPIO, GPIO_MODE_INPUT);
+  gpio_set_pull_mode(BTNBTN_GPIO, GPIO_PULLUP_ONLY);
 
   initLeds();
+  vTaskDelay(1000 /portTICK_PERIOD_MS);
 
   // Initialize NVS.
   ret = nvs_flash_init();
@@ -536,14 +541,15 @@ int app_main(void){
   nvsReadConfig();
 
   if (gpio_get_level(BTNBTN_GPIO) == 0) {
+    ESP_LOGW(ZBLF_TAG, "GPIO Button pressed");
     strcpy(extension, "xxx");
     strcpy(phoneMac, "");
     nvs_handle_t my_handle;
     esp_err_t err = nvs_open("storage", NVS_READWRITE, &my_handle);
     if (err != ESP_OK) {
-      printf("Error (%s) opening NVS handle!\n", esp_err_to_name(err));
+      printf("ZBLF: Error (%s) opening NVS handle!\n", esp_err_to_name(err));
     } else {
-      printf("Erase config ");
+      printf("ZBLF: Erase config ");
       err = nvs_flash_erase();
       printf((err != ESP_OK) ? "Failed!\n" : "Done\n");
       nvs_close(my_handle);
