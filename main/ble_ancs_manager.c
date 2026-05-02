@@ -357,6 +357,17 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
   }
 }
 
+static bool compare_addr(uint8_t *addr1, uint8_t *addr2) {
+  bool test = true;
+  for (int i = 0; i < 6; i++) {
+    if (addr1[i] != addr2[i]) {
+      test = false;
+      break;
+    }
+  }
+  return test;
+}
+
 static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble_gattc_cb_param_t *param)
 {
   switch (event) {
@@ -373,6 +384,15 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
         break;
       }
       ESP_LOGI(BLE_ANCS_TAG, "ESP_GATTC_OPEN_EVT");
+      if (known_bd_addr != NULL) {
+        if (!compare_addr(known_bd_addr, param->open.remote_bda)) {
+          ESP_LOGE(BLE_ANCS_TAG,"Already paired with other device!! Reset zBLF to pair a new one");
+          ESP_LOG_BUFFER_HEX("New Device addr:", param->open.remote_bda, ESP_BD_ADDR_LEN);
+          ESP_LOG_BUFFER_HEX("Paired Device addr:", known_bd_addr, ESP_BD_ADDR_LEN);
+          esp_ble_gattc_close(gattc_if, param->open.conn_id);
+          break;
+        }
+      }
       gl_profile_tab[PROFILE_A_APP_ID].conn_id = param->open.conn_id;
       esp_ble_set_encryption(param->open.remote_bda, ESP_BLE_SEC_ENCRYPT_MITM);
       esp_err_t mtu_ret = esp_ble_gattc_send_mtu_req (gattc_if, param->open.conn_id);
@@ -403,6 +423,7 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
         break;
       }
       ESP_LOGI(BLE_ANCS_TAG, "ESP_GATTC_SEARCH_CMPL_EVT");
+      //ESP_LOG_BUFFER_HEX("addr", param->gattc_cancel_open_evt_param->remote_bda, ESP_BD_ADDR_LEN);
       if (get_service) {
         uint16_t count  = 0;
         uint16_t offset = 0;

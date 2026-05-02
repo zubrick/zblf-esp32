@@ -57,6 +57,8 @@
 
 #include <stddef.h>
 
+#define ZBLF_TAG                              "ZBLF"
+
 const char * ssid = WIFI_SSID;
 const char * pass = WIFI_PASS;
 
@@ -70,10 +72,11 @@ char * bttopic = NULL;
 char * localtopic = NULL;
 
 uint8_t* bd_addr = NULL;
+uint8_t base_mac_addr[6] = {0,0,0,0,0,0};
 
 //static bd_addr_t device_addr;
 
-static char btname[9];
+static char btname[16];
 
 #define ZBLF_PERIOD_MS 1000
 
@@ -214,7 +217,8 @@ void setBTConfig(char * _bttopic, char * _localtopic, char * phoneMac, esp_mqtt_
   localtopic = _localtopic;
   mqttclient = client;
   extension = extension;
-  sprintf(btname, "zBLF-%s", extension);
+  sprintf(btname, "zBLF-%s-%02X%02X%02X", extension, base_mac_addr[3], base_mac_addr[4], base_mac_addr[5]);
+  ESP_LOGI(ZBLF_TAG, "Setting device name to %s", btname);
 }
 
 void initLeds() {
@@ -354,14 +358,6 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
     ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
 
     if (strncmp(extension, "xxx", 3) == 0) {
-      esp_err_t ret = ESP_OK;
-      uint8_t base_mac_addr[6];
-      ret = esp_efuse_mac_get_default(base_mac_addr);
-      if(ret != ESP_OK){
-        ESP_LOGE(TAG, "Failed to get base MAC address from EFUSE BLK0. (%s)", esp_err_to_name(ret));
-        ESP_LOGE(TAG, "Aborting");
-        abort();
-      }
       uint8_t index = 0;
       char macId[50];
       for(uint8_t i=0; i<6; i++){
@@ -501,17 +497,17 @@ void start_advertising();
 static void zblf_timer_callback(){
   //printf("\nTimer\n");
   if (connectionStatus == 0) {
-      connectionStatus = 2;
-      waitConnection = 60;
-      printf("re-advertize\n");
-      start_advertising();
-    } else if (connectionStatus == 2) {
-      waitConnection--;
-      //printf("\nWait %d\n", waitConnection);
-      if (waitConnection <= 0) {
-        connectionStatus = 0;
-      }
+    connectionStatus = 2;
+    waitConnection = 60;
+    printf("re-advertize\n");
+    start_advertising();
+  } else if (connectionStatus == 2) {
+    waitConnection--;
+    //printf("\nWait %d\n", waitConnection);
+    if (waitConnection <= 0) {
+      connectionStatus = 0;
     }
+  }
   int btn = gpio_get_level(BTNBTN_GPIO);
   if (btn == 0) {
     printf("GPIO LEVEL IS %d\n", btn);
@@ -563,6 +559,15 @@ int app_main(void){
   wifi_connection();
   vTaskDelay(10000 /portTICK_PERIOD_MS); //delay is important cause we need to let it connect to wifi
 
+  ret = esp_efuse_mac_get_default(base_mac_addr);
+  if(ret != ESP_OK){
+    ESP_LOGE(TAG, "Failed to get base MAC address from EFUSE BLK0. (%s)", esp_err_to_name(ret));
+    ESP_LOGE(TAG, "Aborting");
+    abort();
+  } else {
+    ESP_LOG_BUFFER_HEX("Device Mac Address", base_mac_addr, 6);
+  }
+
   esp_mqtt_client_handle_t mqttclient = mqtt_initialize(); // MQTT start app as shown above most important code for MQTT
 
   if (strncmp(extension, "xxx", 3) == 0) {
@@ -570,6 +575,7 @@ int app_main(void){
   } else {
     vTaskDelay(10000 /portTICK_PERIOD_MS); //delay is important cause we need to let it connect to wifi
     setStateColor();
+
 
     setBTConfig(bttopic, localtopic, phoneMac, mqttclient, extension);
 
