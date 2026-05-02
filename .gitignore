@@ -65,6 +65,7 @@ size_info.txt
 
 #buidfiles
 build/
+sdkconfig
 sdkconfig.old
 bootloader/
 bootloader-prefix/
