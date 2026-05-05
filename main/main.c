@@ -113,21 +113,21 @@ char* strconcat(char *str1, const char *str2)
 int retry_num = 0;
 static void wifi_event_handler(void *event_handler_arg, esp_event_base_t event_base, int32_t event_id,void *event_data){
   if(event_id == WIFI_EVENT_STA_START) {
-    printf("WIFI CONNECTING....\n");
+    ESP_LOGI(ZBLF_TAG, "WIFI CONNECTING....");
   } else if (event_id == WIFI_EVENT_STA_CONNECTED) {
-    printf("WiFi CONNECTED\n");
+    ESP_LOGI(ZBLF_TAG, "WiFi CONNECTED");
     retry_num = 0;
   } else if (event_id == WIFI_EVENT_STA_DISCONNECTED) {
-    printf("WiFi lost connection\n");
+    ESP_LOGW(ZBLF_TAG, "WiFi lost connection");
     if(retry_num<5) {
       esp_wifi_connect();
       retry_num++;
-      printf("Retrying to Connect...\n");
+      ESP_LOGI(ZBLF_TAG, "Retrying to Connect...");
     } else {
       esp_restart();
     }
   } else if (event_id == IP_EVENT_STA_GOT_IP) {
-    printf("Wifi got IP...\n\n");
+    ESP_LOGI(ZBLF_TAG, "Wifi got IP...");
   }
 }
 
@@ -155,25 +155,27 @@ void wifi_connection(){
   esp_wifi_start();//start connection with configurations provided in funtion
   esp_wifi_set_mode(WIFI_MODE_STA);//station mode selected
   esp_wifi_connect(); //connect with saved ssid and pass
-  printf( "wifi_init_softap finished. SSID:%s  password:%s\n",ssid,pass);
+  ESP_LOGI(ZBLF_TAG, "wifi_init_softap finished. SSID:%s  password:%s",ssid,pass);
 }
 
 static void saveConfig(char * configLine) {
   int extnum = 0;
   sscanf( configLine, "%d,%s", &extnum, phoneMac );
   phoneMac[17] = '\0';
-  printf( "Ext: %d ; Phone: %s\n", extnum, phoneMac);
+  ESP_LOGI(ZBLF_TAG, "SaveConfig: Ext: %d ; Phone: %s\n", extnum, phoneMac);
   sprintf(extension, "%d", extnum);
   nvs_handle_t my_handle;
   esp_err_t err = nvs_open("storage", NVS_READWRITE, &my_handle);
   if (err != ESP_OK) {
-    printf("Error (%s) opening NVS handle!\n", esp_err_to_name(err));
+    ESP_LOGE(ZBLF_TAG, "Error (%s) opening NVS handle!", esp_err_to_name(err));
   } else {
-    printf("Done\n");
 
-    printf("Saving Extension ");
     err = nvs_set_str(my_handle, "extension", extension);
-    printf((err != ESP_OK) ? "Failed!\n" : "Done\n");
+    if (err != ESP_OK) {
+      ESP_LOGE(ZBLF_TAG, "Saving Extension Failed!");
+    } else {
+      ESP_LOGI(ZBLF_TAG, "Saving Extension Done\n");
+    }
 
     //printf("Saving Phone MAC ");
     //err = nvs_set_str(my_handle, "phonemac", phoneMac);
@@ -182,10 +184,10 @@ static void saveConfig(char * configLine) {
     //not saving phonemac from config anymore
 
     for (int i = 10; i >= 0; i--) {
-      printf("Restarting in %d seconds...\n", i);
+      ESP_LOGW(ZBLF_TAG, "Restarting in %d seconds...", i);
       vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
-    printf("Restarting now.\n");
+    ESP_LOGW(ZBLF_TAG, "Restarting now.");
     fflush(stdout);
     esp_restart();
   }
@@ -203,7 +205,12 @@ rmt_channel_handle_t led_chan = NULL;
 rmt_tx_channel_config_t tx_chan_config = {
   .clk_src = RMT_CLK_SRC_DEFAULT, // select source clock
   .gpio_num = STATUSLED_GPIO,
+#ifdef CONFIG_IDF_TARGET_ESP32S3
+  .mem_block_symbols = 48, // esp32-s3 only suport 48
+  .flags.with_dma = false,
+#else
   .mem_block_symbols = 64, // increase the block size can make the LED less flickering
+#endif
   .resolution_hz = RMT_LED_STRIP_RESOLUTION_HZ,
   .trans_queue_depth = 4, // set the number of transactions that can be pending in the background
 };
@@ -247,36 +254,36 @@ int SIPCallState = 0;
 int LocalState = 0;
 static void setStateColor() {
   if (SIPCallState == 4) {
-    printf("Leds WHITE\r\n");
+    ESP_LOGI(ZBLF_TAG, "Leds WHITE");
     setLedsColor((int)LED_BRIGHTNESS/4 , (int)LED_BRIGHTNESS/4, (int)LED_BRIGHTNESS/4);
   } else if (SIPCallState == 3) {
-    printf("Leds GREEN\r\n");
+    ESP_LOGI(ZBLF_TAG, "Leds GREEN");
     setLedsColor(0 , (int)LED_BRIGHTNESS/4, 0);
   } else if ((BTCallState == 0 || BTCallState == 3) && SIPCallState == 0 && LocalState == 0) {
-    printf("Leds OFF\r\n");
+    ESP_LOGI(ZBLF_TAG, "Leds OFF");
     setLedsColor(0, 0 ,0);
   } else if (SIPCallState == 1) {
-    printf("Leds YELLOW\r\n");
+    ESP_LOGI(ZBLF_TAG, "Leds YELLOW");
     setLedsColor(LED_BRIGHTNESS, (int)LED_BRIGHTNESS/4 ,0);
   } else if (BTCallState == 1) {
-    printf("Leds BLUE\r\n");
+    ESP_LOGI(ZBLF_TAG, "Leds BLUE");
     setLedsColor(0, 0,LED_BRIGHTNESS);
   } else if (SIPCallState == 2) {
-    printf("Leds RED\r\n");
+    ESP_LOGI(ZBLF_TAG, "Leds RED");
     setLedsColor(LED_BRIGHTNESS, 0 ,0);
   } else if (LocalState == 2) {
-    printf("Leds PURPLE\r\n");
+    ESP_LOGI(ZBLF_TAG, "Leds PURPLE");
     setLedsColor((int)LED_BRIGHTNESS/2, 0 ,(int)LED_BRIGHTNESS);
   } else if (BTCallState == 2) {
-    printf("Leds PINK\r\n");
+    ESP_LOGI(ZBLF_TAG, "Leds PINK");
     setLedsColor(LED_BRIGHTNESS, 0 , (int)LED_BRIGHTNESS/4);
-    //printf("Leds BLUE\r\n");
+    //ESP_LOGI(ZBLF_TAG, "Leds BLUE");
     //setLedsColor(0 ,0, LED_BRIGHTNESS);
   } else if (LocalState == 1) {
-    printf("Leds RED\r\n");
+    ESP_LOGI(ZBLF_TAG, "Leds RED");
     setLedsColor(LED_BRIGHTNESS, 0 ,0);
   } else {
-    printf("Leds TURQUOISE\r\n");
+    ESP_LOGI(ZBLF_TAG, "Leds TURQUOISE");
     setLedsColor(0, LED_BRIGHTNESS ,LED_BRIGHTNESS);
   }
 }
@@ -288,7 +295,7 @@ static void setBTCallStatus(int state) {
     state = 0;
   }
   BTCallState = state;
-  printf("BTCallState=%d\r\n", BTCallState);
+  ESP_LOGI(ZBLF_TAG, "BTCallState=%d", BTCallState);
   setStateColor();
   if (state == 1) {
     esp_mqtt_client_publish(mqttclient, bttopic, "early", 0, 0, 1);
@@ -310,15 +317,18 @@ static void BTConnectCallback(uint8_t * _bd_addr) {
   if(strlen(phoneMac) != 12) {
     ESP_LOG_BUFFER_HEX("addr", _bd_addr, 6);
     sprintf(phoneMac, "%02X%02X%02X%02X%02X%02X", _bd_addr[0], _bd_addr[1], _bd_addr[2], _bd_addr[3], _bd_addr[4], _bd_addr[5]);
-    printf("phoneMac=%s\n", phoneMac);
+    ESP_LOGI(ZBLF_TAG, "phoneMac=%s", phoneMac);
     nvs_handle_t my_handle;
     esp_err_t err = nvs_open("storage", NVS_READWRITE, &my_handle);
     if (err != ESP_OK) {
-      printf("Error (%s) opening NVS handle!\n", esp_err_to_name(err));
+      ESP_LOGE(ZBLF_TAG, "Error (%s) opening NVS handle!", esp_err_to_name(err));
     } else {
-      printf("Saving Phone MAC ");
       err = nvs_set_str(my_handle, "phonemac", phoneMac);
-      printf((err != ESP_OK) ? "Failed!\n" : "Done\n");
+      if (err != ESP_OK) {
+        ESP_LOGE(ZBLF_TAG, "Saving phoneMac Failed!");
+      } else {
+        ESP_LOGI(ZBLF_TAG, "Saving phoneMac Done");
+      }
       nvs_close(my_handle);
     }
   }
@@ -333,7 +343,7 @@ static void BTDisconnectCallback() {
 
 void setSIPCallStatus(int state) {
   SIPCallState = state;
-  printf("SIPCallState=%d\r\n", SIPCallState);
+  ESP_LOGI(ZBLF_TAG, "SIPCallState=%d", SIPCallState);
   setStateColor();
 }
 
@@ -354,26 +364,27 @@ extern void setSIPCallStatus(int state);
 extern void toggleLightsStatus();
 extern void setLightsColor(uint32_t red, uint32_t green, uint32_t blue);
 
+int mqttConnectErrors=0;
 static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data) { //here esp_mqtt_event_handle_t is a struct which receieves struct event from mqtt app start funtion
   esp_mqtt_event_handle_t event = event_data;
   esp_mqtt_client_handle_t client = event->client; //making obj client of struct esp_mqtt_client_handle_t and assigning it the receieved event client
   if(event_id == MQTT_EVENT_CONNECTED){
     ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
-
+    mqttConnectErrors=0;
     if (strncmp(extension, "xxx", 3) == 0) {
       uint8_t index = 0;
       char macId[50];
       for(uint8_t i=0; i<6; i++){
         index += sprintf(&macId[index], "%02x", base_mac_addr[i]);
       }
-      ESP_LOGI(TAG, "MAC address is %s\n", macId);
+      ESP_LOGI(TAG, "MAC address is %s", macId);
       char * conftopic = strconcat(MQTT_CONF_TOPIC, macId);
-      printf("Subscribing to topic %s\n", conftopic);
+      ESP_LOGI(TAG, "Subscribing to topic %s", conftopic);
       esp_mqtt_client_subscribe(client, conftopic, 0);
     } else {
-      printf("Subscribing to topic %s\n", siptopic);
+      ESP_LOGI(TAG, "Subscribing to topic %s", siptopic);
       esp_mqtt_client_subscribe(client, siptopic, 0); //in mqtt we require a topic to subscribe and client is from event client and 0 is quality of service it can be 1 or 2
-      printf("Subscribing to topic %s\n", localtopic);
+      ESP_LOGI(TAG, "Subscribing to topic %s", localtopic);
       esp_mqtt_client_subscribe(client, localtopic, 0); //in mqtt we require a topic to subscribe and client is from event client and 0 is quality of service it can be 1 or 2
     }
     ESP_LOGI(TAG3, "sent subscribe successful" );
@@ -385,20 +396,17 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
     ESP_LOGI(TAG3, "MQTT_EVENT_UNSUBSCRIBED");
   } else if(event_id == MQTT_EVENT_DATA) {
     ESP_LOGI(TAG3, "MQTT_EVENT_DATA");
-    printf("TOPIC=%.*s\r\n", event->topic_len, event->topic);
-    printf("DATA=%.*s\r\n", event->data_len, event->data);
+    ESP_LOGI(TAG3, "TOPIC=%.*s", event->topic_len, event->topic);
+    ESP_LOGI(TAG3, "DATA=%.*s", event->data_len, event->data);
     if (strncmp(event->topic, MQTT_CONF_TOPIC, strlen(MQTT_CONF_TOPIC)-1) == 0) {
-      printf("CONFIG\r\n");
+      ESP_LOGI(ZBLF_TAG, "CONFIG");
       saveConfig(event->data);
     } else if (strncmp(event->topic, MQTT_TOPIC, strlen(MQTT_TOPIC)-1) == 0) {
       if (strncmp(event->data, "confirmed", event->data_len) == 0) {
-        printf("state confirmed\r\n");
         setSIPCallStatus(2);
       } else if (strncmp(event->data, "early", event->data_len) == 0) {
-        printf("state early\r\n");
         setSIPCallStatus(1);
       } else {
-        printf("state terminated\r\n");
         setSIPCallStatus(0);
       }
     } else if (strncmp(event->topic, MQTT_LOCALTOPIC, strlen(MQTT_TOPIC)-1) == 0) {
@@ -413,6 +421,11 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
     }
   } else if(event_id == MQTT_EVENT_ERROR) {
     ESP_LOGI(TAG3, "MQTT_EVENT_ERROR");
+    mqttConnectErrors++;
+    if (mqttConnectErrors >= 5) {
+      ESP_LOGE(ZBLF_TAG, "Retried MQTT Connection 5 times -> Rebooting");
+      esp_restart();
+    } else {
     if (event->error_handle->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT) {
       ESP_LOGI(TAG, "Last error code reported from esp-tls: 0x%x", event->error_handle->esp_tls_last_esp_err);
       ESP_LOGI(TAG, "Last tls stack error number: 0x%x", event->error_handle->esp_tls_stack_err);
@@ -422,6 +435,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
       ESP_LOGI(TAG, "Connection refused error: 0x%x", event->error_handle->connect_return_code);
     } else {
       ESP_LOGW(TAG, "Unknown error type: 0x%x", event->error_handle->error_type);
+    }
     }
   }
 }
@@ -447,24 +461,22 @@ static esp_mqtt_client_handle_t mqtt_initialize(void) {/*Depending on your websi
 }
 
 static void nvsReadConfig () {
-  printf("\n");
-  printf("Opening Non-Volatile Storage (NVS) handle... ");
+  ESP_LOGI(ZBLF_TAG, "Opening Non-Volatile Storage (NVS) handle... ");
   nvs_handle_t nvs_handle;
   esp_err_t err = nvs_open("storage", NVS_READWRITE, &nvs_handle);
   if (err != ESP_OK) {
-    printf("Error (%s) opening NVS handle!\n", esp_err_to_name(err));
+    ESP_LOGE(ZBLF_TAG, "Error (%s) opening NVS handle!", esp_err_to_name(err));
   } else {
-    printf("Done\n");
 
     // Read
-    printf("Reading extension from NVS ... ");
+    ESP_LOGI(ZBLF_TAG, "Reading extension from NVS ... ");
     size_t required_size;
     err = nvs_get_str(nvs_handle, "extension", NULL, &required_size);
     switch (err) {
       case ESP_OK:
-        printf("Done\n");
+
         nvs_get_str(nvs_handle, "extension", extension, &required_size);
-        printf("extension from config: %s\n", extension);
+        ESP_LOGI(ZBLF_TAG, "extension from config: %s", extension);
         err = nvs_get_str(nvs_handle, "phonemac", NULL, &required_size);
         if (err == ESP_OK) {
           nvs_get_str(nvs_handle, "phonemac", phoneMac, &required_size);
@@ -475,9 +487,9 @@ static void nvsReadConfig () {
               sscanf(pos, "%2hhx", &bd_addr[count]);
               pos += 2;
             }
-            ESP_LOG_BUFFER_HEX("addr", bd_addr, 6);
+            ESP_LOG_BUFFER_HEX("Stored Mac Address", bd_addr, 6);
           } else {
-            printf("stored mac address is %d chars!!\n", strlen(phoneMac));
+            ESP_LOGI(ZBLF_TAG, "stored mac address is %d chars!!", strlen(phoneMac));
           }
         }
         siptopic = strconcat(MQTT_TOPIC, extension);
@@ -485,11 +497,11 @@ static void nvsReadConfig () {
         localtopic = strconcat(MQTT_LOCALTOPIC, extension);
         break;
       case ESP_ERR_NVS_NOT_FOUND:
-        printf("The value is not initialized yet!\n");
+        ESP_LOGW(ZBLF_TAG, "The value is not initialized yet!");
         strcpy(extension, "xxx");
         break;
       default :
-        printf("Error (%s) reading!\n", esp_err_to_name(err));
+        ESP_LOGE(ZBLF_TAG, "Error (%s) reading!", esp_err_to_name(err));
     }
   }
 }
@@ -502,7 +514,7 @@ static void zblf_timer_callback(){
   if (connectionStatus == 0) {
     connectionStatus = 2;
     waitConnection = 60;
-    printf("re-advertize\n");
+    ESP_LOGI(ZBLF_TAG, "re-advertize");
     start_advertising();
   } else if (connectionStatus == 2) {
     waitConnection--;
@@ -513,7 +525,7 @@ static void zblf_timer_callback(){
   }
   int btn = gpio_get_level(BTNBTN_GPIO);
   if (btn == 0) {
-    printf("GPIO LEVEL IS %d\n", btn);
+    ESP_LOGI(ZBLF_TAG, "GPIO LEVEL IS %d", btn);
     toggleLocalStatus();
   }
 }
@@ -542,20 +554,28 @@ int app_main(void){
 
   if (gpio_get_level(BTNBTN_GPIO) == 0) {
     ESP_LOGW(ZBLF_TAG, "GPIO Button pressed");
-    strcpy(extension, "xxx");
-    strcpy(phoneMac, "");
-    nvs_handle_t my_handle;
-    esp_err_t err = nvs_open("storage", NVS_READWRITE, &my_handle);
-    if (err != ESP_OK) {
-      printf("ZBLF: Error (%s) opening NVS handle!\n", esp_err_to_name(err));
+    if (strncmp(extension, "xxx", 3) == 0) {
+      ESP_LOGW(ZBLF_TAG, "Config Already Erased!");
     } else {
-      printf("ZBLF: Erase config ");
-      err = nvs_flash_erase();
-      printf((err != ESP_OK) ? "Failed!\n" : "Done\n");
-      nvs_close(my_handle);
-      esp_restart();
+      setSIPCallStatus(4);
+      strcpy(extension, "xxx");
+      strcpy(phoneMac, "");
+      nvs_handle_t my_handle;
+      esp_err_t err = nvs_open("storage", NVS_READWRITE, &my_handle);
+      if (err != ESP_OK) {
+        ESP_LOGE(ZBLF_TAG, "Error (%s) opening NVS handle!", esp_err_to_name(err));
+      } else {
+        ESP_LOGW(ZBLF_TAG, "ERASING CONFIG ");
+        err = nvs_flash_erase();
+        if (err != ESP_OK) {
+          ESP_LOGE(ZBLF_TAG, "Saving Extension Failed!");
+        } else {
+          ESP_LOGI(ZBLF_TAG, "Saving Extension Done\n");
+        }
+        nvs_close(my_handle);
+        esp_restart();
+      }
     }
-    printf("ERASING CONFIG\n");
   }
   if (strncmp(extension, "xxx", 3) == 0) {
     setSIPCallStatus(4);
@@ -567,11 +587,11 @@ int app_main(void){
 
   ret = esp_efuse_mac_get_default(base_mac_addr);
   if(ret != ESP_OK){
-    ESP_LOGE(TAG, "Failed to get base MAC address from EFUSE BLK0. (%s)", esp_err_to_name(ret));
-    ESP_LOGE(TAG, "Aborting");
+    ESP_LOGE(ZBLF_TAG, "Failed to get base MAC address from EFUSE BLK0. (%s)", esp_err_to_name(ret));
+    ESP_LOGE(ZBLF_TAG, "Aborting");
     abort();
   } else {
-    ESP_LOG_BUFFER_HEX("Device Mac Address", base_mac_addr, 6);
+    ESP_LOG_BUFFER_HEX( "Device Mac Address", base_mac_addr, 6);
   }
 
   esp_mqtt_client_handle_t mqttclient = mqtt_initialize(); // MQTT start app as shown above most important code for MQTT
