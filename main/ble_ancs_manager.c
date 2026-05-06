@@ -10,7 +10,6 @@
 #include "freertos/event_groups.h"
 #include "esp_system.h"
 #include "esp_log.h"
-#include "nvs_flash.h"
 #include "esp_bt.h"
 
 #include "esp_gap_ble_api.h"
@@ -23,6 +22,14 @@
 #include "esp_gatt_common_api.h"
 #include "ble_ancs.h"
 #include "esp_timer.h"
+#include "nvs_flash.h"
+#include "nvs.h"
+
+#define NVS_NAMESPACE "ble_bonds"
+#define NVS_KEY_IRK   "peer_irk"
+#define NVS_KEY_ADDR  "peer_addr"
+#define NVS_KEY_ATYPE "peer_atype"
+
 
 #define BLE_ANCS_TAG                              "BLE_ANCS"
 #define EXAMPLE_DEVICE_NAME                       "ESP_BLE_ANCS"
@@ -40,11 +47,17 @@ static esp_gattc_descr_elem_t *descr_elem_result = NULL;
 static void periodic_timer_callback(void* arg);
 esp_timer_handle_t periodic_timer;
 
+static esp_bd_addr_t peer_identity_addr;
+static uint8_t peer_identity_addr_type;
+static esp_bt_octet16_t peer_identity_irk;
+static bool peer_identity_addr_valid = false;
+static bool peer_identity_saved = false;
+static bool privacy_enable = false;
+
 static char* btname;
-static uint8_t* known_bd_addr = NULL;
 
 void (*btStatusCallback)(int);
-void (*btConnectedCallback)(esp_bd_addr_t);
+void (*btConnectedCallback)();
 void (*btDisconnectedCallback)();
 
 const esp_timer_create_args_t periodic_timer_args = {
@@ -171,6 +184,45 @@ esp_noti_attr_list_t p_attr[8] = {
 
 };
 
+void save_peer_identity_to_nvs(void) {
+  nvs_handle_t handle;
+  if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle) == ESP_OK && peer_identity_addr_valid) {
+    nvs_set_blob(handle, NVS_KEY_IRK,  peer_identity_irk,  16);
+    nvs_set_blob(handle, NVS_KEY_ADDR, peer_identity_addr, 6);
+    nvs_set_u8(handle,   NVS_KEY_ATYPE, peer_identity_addr_type);
+    nvs_commit(handle);
+    nvs_close(handle);
+    ESP_LOGI(BLE_ANCS_TAG, "✅ IRK + identity addr sauvés en NVS");
+  }
+}
+
+// Recharger au boot, dans ESP_GATTS_REG_EVT, APRÈS config_local_privacy
+void reload_peer_identity_from_nvs(void) {
+  nvs_handle_t handle;
+  if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle) == ESP_OK) {
+    size_t len = 16;
+    esp_err_t r1 = nvs_get_blob(handle, NVS_KEY_IRK,  peer_identity_irk,  &len);
+    len = 6;
+    esp_err_t r2 = nvs_get_blob(handle, NVS_KEY_ADDR, peer_identity_addr, &len);
+    esp_err_t r3 = nvs_get_u8(handle,   NVS_KEY_ATYPE, &peer_identity_addr_type);
+    nvs_close(handle);
+
+    if (r1 == ESP_OK && r2 == ESP_OK && r3 == ESP_OK) {
+      peer_identity_addr_valid = true;
+      ESP_LOGI(BLE_ANCS_TAG, "IRK rechargé depuis NVS");
+      ESP_LOG_BUFFER_HEX("Identity", peer_identity_addr, 6);
+
+      // Désactiver temporairement la résolution pour pouvoir
+      // ajouter à la resolving list
+      esp_ble_gap_config_local_privacy(false);
+      privacy_enable = false;
+      // → dans LOCAL_PRIVACY_COMPLETE_EVT (false), appeler :
+      //   esp_ble_gap_add_device_to_resolving_list(...)
+      //   puis esp_ble_gap_config_local_privacy(true)
+    }
+  }
+}
+
 /*
   | CommandID(1 Byte) | NotificationUID(4 Bytes) | AttributeIDs |
 */
@@ -275,6 +327,35 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
   ESP_LOGI(BLE_ANCS_TAG, "GAP_EVT, event %d", event);
 
   switch (event) {
+    case ESP_GAP_BLE_KEY_EVT:
+      ESP_LOGI(BLE_ANCS_TAG, "Key type received: 0x%x", param->ble_security.ble_key.key_type);
+      // On cherche ESP_LE_KEY_PID (= 0x02) = IRK du peer
+      if (param->ble_security.ble_key.key_type == ESP_LE_KEY_PID) {
+        ESP_LOGI(BLE_ANCS_TAG, "Peer IRK received !");
+        if (peer_identity_saved && memcmp(peer_identity_addr, param->ble_security.ble_key.p_key_value.pid_key.static_addr, sizeof(esp_bd_addr_t)) != 0) {
+          ESP_LOGE(BLE_ANCS_TAG, "Trying to peer a diferrent device !");
+          esp_ble_confirm_reply(param->ble_security.ble_req.bd_addr, false);
+        } else {
+          memcpy(peer_identity_addr,
+                 param->ble_security.ble_key.p_key_value.pid_key.static_addr,
+                 ESP_BD_ADDR_LEN);
+          memcpy(peer_identity_irk,
+                 param->ble_security.ble_key.p_key_value.pid_key.irk,
+                 ESP_BT_OCTET16_LEN);
+          peer_identity_addr_type =
+            param->ble_security.ble_key.p_key_value.pid_key.addr_type;
+          peer_identity_addr_valid = true;
+          ESP_LOG_BUFFER_HEX("IRK",
+                             param->ble_security.ble_key.p_key_value.pid_key.irk,
+                             16);
+          ESP_LOG_BUFFER_HEX("Identity addr",
+                             param->ble_security.ble_key.p_key_value.pid_key.static_addr,
+                             ESP_BD_ADDR_LEN);
+          ESP_LOGI(BLE_ANCS_TAG, "Identity addr type %d", peer_identity_addr_type);
+          save_peer_identity_to_nvs();
+        }
+      }
+      break;
     case ESP_GAP_BLE_SCAN_RSP_DATA_SET_COMPLETE_EVT:
       adv_config_done &= (~SCAN_RSP_CONFIG_FLAG);
       if (adv_config_done == 0) {
@@ -322,33 +403,71 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
       ESP_LOGI(BLE_ANCS_TAG, "The passkey Notify number:%06" PRIu32, param->ble_security.key_notif.passkey);
       break;
     case ESP_GAP_BLE_AUTH_CMPL_EVT: {
-      ESP_LOG_BUFFER_HEX("addr", param->ble_security.auth_cmpl.bd_addr, ESP_BD_ADDR_LEN);
-      ESP_LOGI(BLE_ANCS_TAG, "pair status = %s",param->ble_security.auth_cmpl.success ? "success" : "fail");
-      if (!param->ble_security.auth_cmpl.success) {
-        ESP_LOGI(BLE_ANCS_TAG, "fail reason = 0x%x",param->ble_security.auth_cmpl.fail_reason);
+      esp_ble_auth_cmpl_t *auth_cmpl = &param->ble_security.auth_cmpl;
+      if (auth_cmpl->success) {
+        uint8_t top2bits = (auth_cmpl->bd_addr[0] >> 6) & 0x03;
+        if (top2bits == 0x01 && peer_identity_addr_valid) {
+          ESP_LOGW(BLE_ANCS_TAG, "Saved bound with RPA, correcting...");
+
+          // 2. Créer le bond avec l'identity address
+          // peer_identity_addr a été stocké dans ESP_GAP_BLE_KEY_EVT
+          esp_err_t ret = esp_ble_gap_update_whitelist(
+            true,
+            peer_identity_addr,
+            peer_identity_addr_type == 0 ?
+            BLE_WL_ADDR_TYPE_PUBLIC : BLE_WL_ADDR_TYPE_RANDOM
+            );
+          ESP_LOGI(BLE_ANCS_TAG, "whitelist update: %s", esp_err_to_name(ret));
+        }
+
+        ESP_LOG_BUFFER_HEX("Identity", peer_identity_addr, ESP_BD_ADDR_LEN);
+        ESP_LOGI(BLE_ANCS_TAG, "Identity addr type %d", peer_identity_addr_type );
+
+
+        ESP_LOGI(BLE_ANCS_TAG, "Pairing success. Auth mode: %d. Addr Type: %d", auth_cmpl->auth_mode, auth_cmpl->addr_type);
+        ESP_LOG_BUFFER_HEX("addr", auth_cmpl->bd_addr, ESP_BD_ADDR_LEN);
+        btConnectedCallback();
+        int num = esp_ble_get_bond_device_num();
+        ESP_LOGI(BLE_ANCS_TAG, "Bonded devices après pairing: %d", num); // Doit être >= 1
       } else {
-        btConnectedCallback(param->ble_security.auth_cmpl.bd_addr);
+        ESP_LOGE(BLE_ANCS_TAG, "Pairing failed, reason: 0x%x", auth_cmpl->fail_reason);
+        ESP_LOG_BUFFER_HEX("addr", auth_cmpl->bd_addr, ESP_BD_ADDR_LEN);
       }
       break;
     }
     case ESP_GAP_BLE_SET_LOCAL_PRIVACY_COMPLETE_EVT:
+      ESP_LOGI(BLE_ANCS_TAG, "ESP_GAP_BLE_SET_LOCAL_PRIVACY_COMPLETE_EVT");
       if (param->local_privacy_cmpl.status != ESP_BT_STATUS_SUCCESS) {
         ESP_LOGE(BLE_ANCS_TAG, "config local privacy failed, error status = %x", param->local_privacy_cmpl.status);
         break;
       }
 
-      esp_err_t ret = esp_ble_gap_config_adv_data(&adv_config);
-      if (ret) {
-        ESP_LOGE(BLE_ANCS_TAG, "config adv data failed, error code = %x", ret);
-      } else {
-        adv_config_done |= ADV_CONFIG_FLAG;
-      }
+      if (!privacy_enable && peer_identity_addr_valid) {
+        // Privacy OFF → on peut ajouter à la resolving list
+        esp_ble_gap_add_device_to_resolving_list(
+          peer_identity_addr,
+          peer_identity_addr_type,
+          peer_identity_irk
+          );
+        ESP_LOGI(BLE_ANCS_TAG, "IRK injecté dans resolving list");
 
-      ret = esp_ble_gap_config_adv_data(&scan_rsp_config);
-      if (ret) {
-        ESP_LOGE(BLE_ANCS_TAG, "config adv data failed, error code = %x", ret);
+        // Réactiver la privacy
+        esp_ble_gap_config_local_privacy(true);
+        privacy_enable=true;
       } else {
-        adv_config_done |= SCAN_RSP_CONFIG_FLAG;
+        esp_err_t ret = esp_ble_gap_config_adv_data(&adv_config);
+        if (ret) {
+          ESP_LOGE(BLE_ANCS_TAG, "config adv data failed, error code = %x", ret);
+        } else {
+          adv_config_done |= ADV_CONFIG_FLAG;
+        }
+
+        ret = esp_ble_gap_config_adv_data(&scan_rsp_config);
+        if (ret) {
+          ESP_LOGE(BLE_ANCS_TAG, "config adv data failed, error code = %x", ret);
+        } else {
+          adv_config_done |= SCAN_RSP_CONFIG_FLAG;
+        }
       }
 
       break;
@@ -373,10 +492,17 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
   switch (event) {
     case ESP_GATTC_REG_EVT:
       ESP_LOGI(BLE_ANCS_TAG, "REG_EVT");
-      esp_ble_gap_set_device_name(btname);
-      esp_ble_gap_config_local_icon (ESP_BLE_APPEARANCE_GENERIC_WATCH);
-      //generate a resolvable random address
-      esp_ble_gap_config_local_privacy(true);
+
+      if (param->reg.status == ESP_GATT_OK) {
+
+        // Recharger les bonds dans la resolving list
+        int dev_num = esp_ble_get_bond_device_num();
+        ESP_LOGI(BLE_ANCS_TAG, "Bonded devices: %d", dev_num);
+
+        ESP_LOGI(BLE_ANCS_TAG, "GATTC REG_EVT OK");
+        esp_ble_gap_config_local_privacy(false); // démarre la séquence
+        reload_peer_identity_from_nvs();
+      }
       break;
     case ESP_GATTC_OPEN_EVT:
       if (param->open.status != ESP_GATT_OK) {
@@ -384,15 +510,6 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
         break;
       }
       ESP_LOGI(BLE_ANCS_TAG, "ESP_GATTC_OPEN_EVT");
-      if (known_bd_addr != NULL) {
-        if (!compare_addr(known_bd_addr, param->open.remote_bda)) {
-          ESP_LOGE(BLE_ANCS_TAG,"Already paired with other device!! Reset zBLF to pair a new one");
-          ESP_LOG_BUFFER_HEX("New Device addr:", param->open.remote_bda, ESP_BD_ADDR_LEN);
-          ESP_LOG_BUFFER_HEX("Paired Device addr:", known_bd_addr, ESP_BD_ADDR_LEN);
-          //esp_ble_gattc_close(gattc_if, param->open.conn_id);
-          //break;
-        }
-      }
       gl_profile_tab[PROFILE_A_APP_ID].conn_id = param->open.conn_id;
       esp_ble_set_encryption(param->open.remote_bda, ESP_BLE_SEC_ENCRYPT_MITM);
       esp_err_t mtu_ret = esp_ble_gattc_send_mtu_req (gattc_if, param->open.conn_id);
@@ -694,12 +811,11 @@ void init_timer(void)
   ESP_ERROR_CHECK(esp_timer_create(&periodic_timer_args, &periodic_timer));
 }
 
-void ble_ancs_init(void (*_statusCallback)(int), void (*_connectCallback)(uint8_t *), void (*_disconnectCallback)(), char * _btname, uint8_t * bd_addr)
+void ble_ancs_init(void (*_statusCallback)(int), void (*_connectCallback)(uint8_t *), void (*_disconnectCallback)(), char * _btname)
 {
   esp_err_t ret;
 
   btname = _btname;
-  known_bd_addr = bd_addr;
   btStatusCallback = *_statusCallback;
   btConnectedCallback = *_connectCallback;
   btDisconnectedCallback = *_disconnectCallback;
@@ -757,8 +873,10 @@ void ble_ancs_init(void (*_statusCallback)(int), void (*_connectCallback)(uint8_
     ESP_LOGE(BLE_ANCS_TAG, "set local  MTU failed, error code = %x", ret);
   }
 
+
   /* set the security iocap & auth_req & key size & init key response key parameters to the stack*/
-  esp_ble_auth_req_t auth_req = ESP_LE_AUTH_REQ_SC_MITM_BOND;     //bonding with peer device after authentication
+  esp_ble_auth_req_t auth_req = ESP_LE_AUTH_REQ_SC_BOND;     //Claude suggestion: no MITM since not screen (iocap)
+  //esp_ble_auth_req_t auth_req = ESP_LE_AUTH_REQ_SC_MITM_BOND;     //bonding with peer device after authentication
   esp_ble_io_cap_t iocap = ESP_IO_CAP_NONE;           //set the IO capability to No output No input
   uint8_t key_size = 16;      //the key size should be 7~16 bytes
   uint8_t init_key = ESP_BLE_ENC_KEY_MASK | ESP_BLE_ID_KEY_MASK;
@@ -780,6 +898,9 @@ void ble_ancs_init(void (*_statusCallback)(int), void (*_connectCallback)(uint8_
      and the init key means which key you can distribute to the slave. */
   esp_ble_gap_set_security_param(ESP_BLE_SM_SET_INIT_KEY, &init_key, sizeof(uint8_t));
   esp_ble_gap_set_security_param(ESP_BLE_SM_SET_RSP_KEY, &rsp_key, sizeof(uint8_t));
+
+  esp_ble_gap_set_device_name(btname);
+
 
   int numbound = esp_ble_get_bond_device_num();
   if (numbound > 0) {

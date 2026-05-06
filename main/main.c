@@ -70,6 +70,7 @@ char phoneMac[18];
 char * siptopic = NULL;
 char * bttopic = NULL;
 char * localtopic = NULL;
+char * msttopic = NULL;
 
 uint8_t* bd_addr = NULL;
 uint8_t base_mac_addr[6] = {0,0,0,0,0,0};
@@ -177,12 +178,6 @@ static void saveConfig(char * configLine) {
       ESP_LOGI(ZBLF_TAG, "Saving Extension Done\n");
     }
 
-    //printf("Saving Phone MAC ");
-    //err = nvs_set_str(my_handle, "phonemac", phoneMac);
-    //printf((err != ESP_OK) ? "Failed!\n" : "Done\n");
-    //nvs_close(my_handle);
-    //not saving phonemac from config anymore
-
     for (int i = 10; i >= 0; i--) {
       ESP_LOGW(ZBLF_TAG, "Restarting in %d seconds...", i);
       vTaskDelay(1000 / portTICK_PERIOD_MS);
@@ -251,6 +246,7 @@ static void setLedsColor(uint32_t red, uint32_t green, uint32_t blue ) {
 int BTCallState = 0;
 int BTCallSetup = 0;
 int SIPCallState = 0;
+int MSTState = 0;
 int LocalState = 0;
 static void setStateColor() {
   if (SIPCallState == 4) {
@@ -259,7 +255,7 @@ static void setStateColor() {
   } else if (SIPCallState == 3) {
     ESP_LOGI(ZBLF_TAG, "Leds GREEN");
     setLedsColor(0 , (int)LED_BRIGHTNESS/4, 0);
-  } else if ((BTCallState == 0 || BTCallState == 3) && SIPCallState == 0 && LocalState == 0) {
+  } else if ((BTCallState == 0 || BTCallState == 3) && SIPCallState == 0 && LocalState == 0 && MSTState == 0) {
     ESP_LOGI(ZBLF_TAG, "Leds OFF");
     setLedsColor(0, 0 ,0);
   } else if (SIPCallState == 1) {
@@ -271,7 +267,7 @@ static void setStateColor() {
   } else if (SIPCallState == 2) {
     ESP_LOGI(ZBLF_TAG, "Leds RED");
     setLedsColor(LED_BRIGHTNESS, 0 ,0);
-  } else if (LocalState == 2) {
+  } else if (MSTState == 2) {
     ESP_LOGI(ZBLF_TAG, "Leds PURPLE");
     setLedsColor((int)LED_BRIGHTNESS/2, 0 ,(int)LED_BRIGHTNESS);
   } else if (BTCallState == 2) {
@@ -310,28 +306,10 @@ static void setBTCallStatus(int state) {
 
 int waitConnection = 0;
 int connectionStatus = 0;
-static void BTConnectCallback(uint8_t * _bd_addr) {
+static void BTConnectCallback() {
   setBTCallStatus(0);
   gpio_set_level(BTNLED_GPIO, 0);
   connectionStatus = 1;
-  if(strlen(phoneMac) != 12) {
-    ESP_LOG_BUFFER_HEX("addr", _bd_addr, 6);
-    sprintf(phoneMac, "%02X%02X%02X%02X%02X%02X", _bd_addr[0], _bd_addr[1], _bd_addr[2], _bd_addr[3], _bd_addr[4], _bd_addr[5]);
-    ESP_LOGI(ZBLF_TAG, "phoneMac=%s", phoneMac);
-    nvs_handle_t my_handle;
-    esp_err_t err = nvs_open("storage", NVS_READWRITE, &my_handle);
-    if (err != ESP_OK) {
-      ESP_LOGE(ZBLF_TAG, "Error (%s) opening NVS handle!", esp_err_to_name(err));
-    } else {
-      err = nvs_set_str(my_handle, "phonemac", phoneMac);
-      if (err != ESP_OK) {
-        ESP_LOGE(ZBLF_TAG, "Saving phoneMac Failed!");
-      } else {
-        ESP_LOGI(ZBLF_TAG, "Saving phoneMac Done");
-      }
-      nvs_close(my_handle);
-    }
-  }
 }
 
 static void BTDisconnectCallback() {
@@ -344,6 +322,12 @@ static void BTDisconnectCallback() {
 void setSIPCallStatus(int state) {
   SIPCallState = state;
   ESP_LOGI(ZBLF_TAG, "SIPCallState=%d", SIPCallState);
+  setStateColor();
+}
+
+void setMSTState(int state) {
+  MSTState = state;
+  ESP_LOGI(ZBLF_TAG, "MSTState=%d", MSTState);
   setStateColor();
 }
 
@@ -384,8 +368,8 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
     } else {
       ESP_LOGI(TAG, "Subscribing to topic %s", siptopic);
       esp_mqtt_client_subscribe(client, siptopic, 0); //in mqtt we require a topic to subscribe and client is from event client and 0 is quality of service it can be 1 or 2
-      ESP_LOGI(TAG, "Subscribing to topic %s", localtopic);
-      esp_mqtt_client_subscribe(client, localtopic, 0); //in mqtt we require a topic to subscribe and client is from event client and 0 is quality of service it can be 1 or 2
+      ESP_LOGI(TAG, "Subscribing to topic %s", msttopic);
+      esp_mqtt_client_subscribe(client, msttopic, 0); //in mqtt we require a topic to subscribe and client is from event client and 0 is quality of service it can be 1 or 2
     }
     ESP_LOGI(TAG3, "sent subscribe successful" );
   } else if(event_id == MQTT_EVENT_DISCONNECTED) {
@@ -409,15 +393,12 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
       } else {
         setSIPCallStatus(0);
       }
-    } else if (strncmp(event->topic, MQTT_LOCALTOPIC, strlen(MQTT_TOPIC)-1) == 0) {
-      if (strncmp(event->data, "busy", event->data_len) == 0) {
-        LocalState = 1;
-      } else if (strncmp(event->data, "teams", event->data_len) == 0) {
-        LocalState = 2;
-      } else if (strncmp(event->data, "free", event->data_len) == 0) {
-        LocalState = 0;
+    } else if (strncmp(event->topic, MQTT_MSTTOPIC, strlen(MQTT_MSTTOPIC)-1) == 0) {
+      if (strncmp(event->data, "confirmed", event->data_len) == 0 || strncmp(event->data, "early", event->data_len) == 0) {
+        setMSTState(2);
+      } else  {
+        setMSTState(0);
       }
-      setStateColor();
     }
   } else if(event_id == MQTT_EVENT_ERROR) {
     ESP_LOGI(TAG3, "MQTT_EVENT_ERROR");
@@ -495,6 +476,7 @@ static void nvsReadConfig () {
         siptopic = strconcat(MQTT_TOPIC, extension);
         bttopic = strconcat(MQTT_BTTOPIC, extension);
         localtopic = strconcat(MQTT_LOCALTOPIC, extension);
+        msttopic = strconcat(MQTT_MSTTOPIC, extension);
         break;
       case ESP_ERR_NVS_NOT_FOUND:
         ESP_LOGW(ZBLF_TAG, "The value is not initialized yet!");
@@ -506,7 +488,7 @@ static void nvsReadConfig () {
   }
 }
 
-void ble_ancs_init(void (*_statusCallback)(int), void (*_connectCallback)(uint8_t *), void (*_disconnectCallback)(), char * _btname, uint8_t * bd_addr);
+void ble_ancs_init(void (*_statusCallback)(int), void (*_connectCallback)(uint8_t *), void (*_disconnectCallback)(), char * _btname);
 void start_advertising();
 
 static void zblf_timer_callback(){
@@ -620,7 +602,7 @@ int app_main(void){
     ESP_ERROR_CHECK(esp_timer_create(&zblf_timer_args, &zblf_timer));
     ESP_ERROR_CHECK(esp_timer_start_periodic(zblf_timer, ZBLF_PERIOD_MS*1000));
 
-    ble_ancs_init(&setBTCallStatus, &BTConnectCallback, &BTDisconnectCallback, btname, bd_addr);
+    ble_ancs_init(&setBTCallStatus, &BTConnectCallback, &BTDisconnectCallback, btname);
   }
 
   return 0;
