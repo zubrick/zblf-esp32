@@ -331,6 +331,7 @@ void setMSTState(int state) {
   setStateColor();
 }
 
+#ifdef BTNBTN_GPIO
 void toggleLocalStatus() {
   if (LocalState == 0) {
     LocalState = 1;
@@ -341,6 +342,7 @@ void toggleLocalStatus() {
   }
   setStateColor();
 }
+#endif
 
 #define TAG "mqtt_connecion"
 #define TAG3 "mqtt_data"
@@ -368,6 +370,8 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
     } else {
       ESP_LOGI(TAG, "Subscribing to topic %s", siptopic);
       esp_mqtt_client_subscribe(client, siptopic, 0); //in mqtt we require a topic to subscribe and client is from event client and 0 is quality of service it can be 1 or 2
+      ESP_LOGI(TAG, "Subscribing to topic %s", localtopic);
+      esp_mqtt_client_subscribe(client, localtopic, 0); //in mqtt we require a topic to subscribe and client is from event client and 0 is quality of service it can be 1 or 2
       ESP_LOGI(TAG, "Subscribing to topic %s", msttopic);
       esp_mqtt_client_subscribe(client, msttopic, 0); //in mqtt we require a topic to subscribe and client is from event client and 0 is quality of service it can be 1 or 2
     }
@@ -393,6 +397,13 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
       } else {
         setSIPCallStatus(0);
       }
+    } else if (strncmp(event->topic, MQTT_LOCALTOPIC, strlen(MQTT_LOCALTOPIC)-1) == 0) {
+      if (strncmp(event->data, "busy", event->data_len) == 0) {
+        LocalState=1;
+      } else  {
+        LocalState=0;
+      }
+      setStateColor();
     } else if (strncmp(event->topic, MQTT_MSTTOPIC, strlen(MQTT_MSTTOPIC)-1) == 0) {
       if (strncmp(event->data, "confirmed", event->data_len) == 0 || strncmp(event->data, "early", event->data_len) == 0) {
         setMSTState(2);
@@ -407,16 +418,16 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
       ESP_LOGE(ZBLF_TAG, "Retried MQTT Connection 5 times -> Rebooting");
       esp_restart();
     } else {
-    if (event->error_handle->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT) {
-      ESP_LOGI(TAG, "Last error code reported from esp-tls: 0x%x", event->error_handle->esp_tls_last_esp_err);
-      ESP_LOGI(TAG, "Last tls stack error number: 0x%x", event->error_handle->esp_tls_stack_err);
-      ESP_LOGI(TAG, "Last captured errno : %d (%s)",  event->error_handle->esp_transport_sock_errno,
-               strerror(event->error_handle->esp_transport_sock_errno));
-    } else if (event->error_handle->error_type == MQTT_ERROR_TYPE_CONNECTION_REFUSED) {
-      ESP_LOGI(TAG, "Connection refused error: 0x%x", event->error_handle->connect_return_code);
-    } else {
-      ESP_LOGW(TAG, "Unknown error type: 0x%x", event->error_handle->error_type);
-    }
+      if (event->error_handle->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT) {
+        ESP_LOGI(TAG, "Last error code reported from esp-tls: 0x%x", event->error_handle->esp_tls_last_esp_err);
+        ESP_LOGI(TAG, "Last tls stack error number: 0x%x", event->error_handle->esp_tls_stack_err);
+        ESP_LOGI(TAG, "Last captured errno : %d (%s)",  event->error_handle->esp_transport_sock_errno,
+                 strerror(event->error_handle->esp_transport_sock_errno));
+      } else if (event->error_handle->error_type == MQTT_ERROR_TYPE_CONNECTION_REFUSED) {
+        ESP_LOGI(TAG, "Connection refused error: 0x%x", event->error_handle->connect_return_code);
+      } else {
+        ESP_LOGW(TAG, "Unknown error type: 0x%x", event->error_handle->error_type);
+      }
     }
   }
 }
@@ -505,11 +516,13 @@ static void zblf_timer_callback(){
       connectionStatus = 0;
     }
   }
+#ifdef BTNBTN_GPIO
   int btn = gpio_get_level(BTNBTN_GPIO);
   if (btn == 0) {
     ESP_LOGI(ZBLF_TAG, "GPIO LEVEL IS %d", btn);
     toggleLocalStatus();
   }
+#endif
 }
 
 int app_main(void){
@@ -518,8 +531,10 @@ int app_main(void){
   gpio_set_direction(BTNLED_GPIO, GPIO_MODE_OUTPUT);
   gpio_set_level(BTNLED_GPIO, 1);
 
+#ifdef BTNBTN_GPIO
   gpio_set_direction(BTNBTN_GPIO, GPIO_MODE_INPUT);
   gpio_set_pull_mode(BTNBTN_GPIO, GPIO_PULLUP_ONLY);
+#endif
 
   initLeds();
   vTaskDelay(1000 /portTICK_PERIOD_MS);
