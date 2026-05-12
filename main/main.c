@@ -320,6 +320,9 @@ static void BTDisconnectCallback() {
 }
 
 void setSIPCallStatus(int state) {
+  if (SIPCallState == 2 && state == 0) {
+    MSTState = 0;
+  }
   SIPCallState = state;
   ESP_LOGI(ZBLF_TAG, "SIPCallState=%d", SIPCallState);
   setStateColor();
