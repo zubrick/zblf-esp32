@@ -683,6 +683,7 @@ static void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp
 
 void start_advertising() {
   if (adv_config_done == 0) {
+    ESP_LOGI(BLE_ANCS_TAG, "Currently having %d bounded devices", esp_ble_get_bond_device_num());
     esp_ble_gap_stop_advertising();
     vTaskDelay(1000 /portTICK_PERIOD_MS);
     esp_ble_gap_start_advertising(&adv_params);
